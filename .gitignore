@@ -1,0 +1,47 @@
+# Build directories
+build/
+builddir/
+*.build/
+
+# Compiled binaries
+F1sh-Camera-RX
+*.exe
+*.app
+
+# Object files
+*.o
+*.obj
+*.so
+*.dylib
+*.dll
+
+# Debug files
+*.pdb
+*.dSYM/
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-*
+
+# OS files
+.DS_Store
+Thumbs.db
+*~
+
+# Meson files
+meson-private/
+meson-logs/
+meson-info/
+
+# Backup files
+*.bak
+*.swp
+*.tmp
+
+# Core dumps
+core
+*.core
+
+# Log files
+*.log
