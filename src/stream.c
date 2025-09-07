@@ -44,34 +44,62 @@ gboolean stream_start(App *app) {
     if (app->pipeline) {
         stream_stop(app);
     }
-    
-    // Create low-latency pipeline with optimized settings
+
+    // Create low-latency pipeline with platform-appropriate decoder/sink
     char pipeline_desc[1024];
+
+    // First attempt: platform HW decoder
+#if defined(__APPLE__)
     snprintf(pipeline_desc, sizeof(pipeline_desc),
              "udpsrc port=%d buffer-size=65536 ! "
              "application/x-rtp,encoding-name=H264,payload=96 ! "
              "rtph264depay ! "
              "h264parse ! "
-             "vtdec_hw ! "  // Hardware decoder on macOS, fallback to avdec_h264 if unavailable
+             "vtdec_hw ! "
              "videoconvert ! "
              "queue max-size-buffers=1 leaky=downstream ! "
              "autovideosink sync=false",
              app->config.rx_stream_port);
-    
-    printf("Creating low-latency pipeline with hardware decoding: %s\n", pipeline_desc);
-    
+#elif defined(G_OS_WIN32)
+    // Prefer D3D11 decoder/sink on Windows
+    snprintf(pipeline_desc, sizeof(pipeline_desc),
+             "udpsrc port=%d buffer-size=65536 ! "
+             "application/x-rtp,encoding-name=H264,payload=96 ! "
+             "rtph264depay ! "
+             "h264parse ! "
+             "d3d11h264dec ! "
+             "d3d11convert ! "
+             "queue max-size-buffers=1 leaky=downstream ! "
+             "d3d11videosink sync=false",
+             app->config.rx_stream_port);
+#else
+    // Generic attempt (e.g., vaapi/nvdec could be added if desired)
+    snprintf(pipeline_desc, sizeof(pipeline_desc),
+             "udpsrc port=%d buffer-size=65536 ! "
+             "application/x-rtp,encoding-name=H264,payload=96 ! "
+             "rtph264depay ! "
+             "h264parse ! "
+             "avdec_h264 max-threads=1 ! "
+             "videoconvert ! "
+             "queue max-size-buffers=1 leaky=downstream ! "
+             "autovideosink sync=false",
+             app->config.rx_stream_port);
+#endif
+
+    printf("Creating pipeline: %s\n", pipeline_desc);
+
     GError *error = NULL;
     app->pipeline = gst_parse_launch(pipeline_desc, &error);
-    
-    // If hardware decoder fails, fall back to software decoder
+
+    // Fallback: software decoder with autovideosink
     if (!app->pipeline || error) {
-        printf("Hardware decoder failed, falling back to software decoder\n");
+        printf("HW pipeline failed, falling back to software decoder\n");
         if (error) {
-            printf("Hardware decoder error: %s\n", error->message);
+            printf("HW pipeline error: %s\n", error->message);
             g_error_free(error);
             error = NULL;
         }
-        
+
         snprintf(pipeline_desc, sizeof(pipeline_desc),
                  "udpsrc port=%d buffer-size=65536 ! "
                  "application/x-rtp,encoding-name=H264,payload=96 ! "
@@ -82,7 +110,7 @@ gboolean stream_start(App *app) {
                  "queue max-size-buffers=1 leaky=downstream ! "
                  "autovideosink sync=false",
                  app->config.rx_stream_port);
-        
+
         printf("Creating fallback pipeline: %s\n", pipeline_desc);
         app->pipeline = gst_parse_launch(pipeline_desc, &error);
     }
@@ -93,31 +121,20 @@ gboolean stream_start(App *app) {
         return FALSE;
     }
     
-    // Set low-latency properties on the pipeline
+    // Optional: try to tweak udpsrc if auto-named (best-effort; ignore if not found)
     GstElement *udpsrc = gst_bin_get_by_name(GST_BIN(app->pipeline), "udpsrc0");
     if (udpsrc) {
-        // Minimize buffering for lowest latency
-        g_object_set(udpsrc, 
-                     "buffer-size", 65536,
-                     "timeout", 1000000,  // 1ms timeout
-                     NULL);
+        g_object_set(udpsrc, "buffer-size", 65536, NULL);
         gst_object_unref(udpsrc);
-    }
-    
-    // Configure RTP jitter buffer for minimal latency
-    GstElement *rtpjitterbuffer = gst_bin_get_by_name(GST_BIN(app->pipeline), "rtpjitterbuffer0");
-    if (rtpjitterbuffer) {
-        g_object_set(rtpjitterbuffer,
-                     "latency", 50,           // 50ms max latency
-                     "drop-on-latency", TRUE, // Drop late packets
-                     "mode", 1,               // Slave mode for sync
-                     NULL);
-        gst_object_unref(rtpjitterbuffer);
     }
     
     // Set up bus
     GstBus *bus = gst_element_get_bus(app->pipeline);
-    gst_bus_add_watch(bus, bus_callback, app);
+    if (app->bus_watch_id != 0) {
+        g_source_remove(app->bus_watch_id);
+        app->bus_watch_id = 0;
+    }
+    app->bus_watch_id = gst_bus_add_watch(bus, bus_callback, app);
     gst_object_unref(bus);
     
     // Set low-latency mode on the entire pipeline
@@ -138,6 +155,10 @@ gboolean stream_start(App *app) {
 }
 
 void stream_stop(App *app) {
+    if (app->bus_watch_id != 0) {
+        g_source_remove(app->bus_watch_id);
+        app->bus_watch_id = 0;
+    }
     if (app->pipeline) {
         printf("Stopping stream\n");
         gst_element_set_state(app->pipeline, GST_STATE_NULL);

@@ -14,6 +14,7 @@ void app_init(App *app) {
     app->connected = FALSE;
     app->streaming = FALSE;
     app->pipeline = NULL;
+    app->bus_watch_id = 0;
     
     // Initialize cURL
     app->curl = curl_easy_init();
@@ -66,9 +67,9 @@ int main(int argc, char *argv[]) {
     
     // Run main loop
     gtk_main();
-    
+
     // Clean up cURL global (only at program exit)
     curl_global_cleanup();
-    
+
     return 0;
 }

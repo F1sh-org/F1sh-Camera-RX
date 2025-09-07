@@ -13,6 +13,7 @@ project(
 gtk_dep = dependency('gtk+-3.0')
 gstreamer_dep = dependency('gstreamer-1.0')
 gstreamer_video_dep = dependency('gstreamer-video-1.0')
+threads_dep = dependency('threads')
 libcurl_dep = dependency('libcurl')
 json_dep = dependency('jansson')
 
@@ -33,7 +34,8 @@ executable(
     gstreamer_dep,
     gstreamer_video_dep,
     libcurl_dep,
-    json_dep
+    json_dep,
+    threads_dep
   ],
   install : true
 )

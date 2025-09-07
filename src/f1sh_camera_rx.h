@@ -39,6 +39,7 @@ typedef struct {
     
     // GStreamer
     GstElement *pipeline;
+    guint bus_watch_id; // source ID for bus watch to remove on stop
     
     // HTTP client
     CURL *curl;

@@ -26,7 +26,7 @@ meson compile -C builddir
 ```
 
 ### Windows
-On Windows, use MSYS2 for all dependencies to ensure compatibility:
+On Windows, use MSYS2:
 
 1. **Install MSYS2** if not already installed
 2. **Install dependencies** in MSYS2 UCRT64 terminal:
@@ -47,49 +47,14 @@ On Windows, use MSYS2 for all dependencies to ensure compatibility:
    meson compile -C builddir
    ```
 
-**Important**: Do not mix MSYS2 libraries with the official GStreamer installer, as this causes binary compatibility issues that prevent GTK widgets from working correctly.
+4. **Run with correct DLLs on PATH**:
+  - Launch from the same UCRT64 shell you built with, so PATH includes MSYS2 DLLs.
+  - Or bundle required `*.dll` from `C:\msys64\ucrt64\bin` alongside `f1sh-camera-rx.exe`.
+
+Important: Do not mix MSYS2 packages with the official GStreamer or GTK installers. Mixing runtimes causes CRITICAL GTK warnings, non-responsive buttons, and shutdown hangs due to event loop ABI mismatches.
 
 ## Running
 
 ```bash
 ./builddir/f1sh-camera-rx
-```
-
-## Usage
-
-1. Enter the TX server IP address and port (default: 127.0.0.1:8888)
-2. Configure RX host IP and stream port (where to receive video)
-3. Set video parameters (width, height, framerate)
-4. Click "Test Connection" to verify TX server is reachable
-5. Click "Connect" to configure TX server and start streaming
-
-## Architecture
-
-The application consists of 4 main modules:
-
-- **main.c**: Application initialization and main loop
-- **ui.c**: GTK user interface and event handling  
-- **http_client.c**: HTTP communication with TX server
-- **stream.c**: GStreamer pipeline for video reception
-
-## Configuration
-
-The TX server expects JSON configuration via POST to `/config`:
-
-```json
-{
-  "host": "192.168.1.77",
-  "port": 5000,
-  "width": 1280,
-  "height": 720,
-  "framerate": 30
-}
-```
-
-The health check is via GET to `/health` expecting:
-
-```json
-{
-  "status": "healthy"
-}
 ```
