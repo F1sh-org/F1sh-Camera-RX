@@ -92,9 +92,6 @@ gboolean http_send_config(App *app) {
     json_object_set_new(config, "width", json_integer(app->config.width));
     json_object_set_new(config, "height", json_integer(app->config.height));
     json_object_set_new(config, "framerate", json_integer(app->config.framerate));
-    if (app->config.flip && strlen(app->config.flip) > 0) {
-        json_object_set_new(config, "flip", json_string(app->config.flip));
-    }
     
     char *json_string = json_dumps(config, 0);
     json_decref(config);

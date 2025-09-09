@@ -49,16 +49,6 @@ static void on_connect_clicked(GtkButton *button, gpointer user_data) {
     app->config.width = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(app->width_spin));
     app->config.height = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(app->height_spin));
     app->config.framerate = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(app->framerate_spin));
-    // flip selection
-    {
-        GtkComboBoxText *cb = GTK_COMBO_BOX_TEXT(app->flip_combo);
-        const char *flip = gtk_combo_box_text_get_active_text(cb);
-        if (flip) {
-            if (app->config.flip) g_free(app->config.flip);
-            app->config.flip = g_strdup(flip);
-            g_free((gpointer)flip);
-        }
-    }
     
     // Test connection first
     if (!http_test_connection(app)) {
@@ -193,19 +183,6 @@ void ui_create(App *app) {
     app->framerate_spin = gtk_spin_button_new_with_range(1, 120, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(app->framerate_spin), 30);
     gtk_grid_attach(GTK_GRID(config_grid), app->framerate_spin, 1, row, 1, 1);
-
-    // Flip selection
-    row++;
-    label = gtk_label_new("Flip:");
-    gtk_widget_set_halign(label, GTK_ALIGN_END);
-    gtk_grid_attach(GTK_GRID(config_grid), label, 0, row, 1, 1);
-    app->flip_combo = gtk_combo_box_text_new();
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(app->flip_combo), "none");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(app->flip_combo), "horizontal-flip");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(app->flip_combo), "vertical-flip");
-    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(app->flip_combo), "rotate-180");
-    gtk_combo_box_set_active(GTK_COMBO_BOX(app->flip_combo), 0);
-    gtk_grid_attach(GTK_GRID(config_grid), app->flip_combo, 1, row, 1, 1);
     
     // Control buttons
     GtkWidget *button_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
