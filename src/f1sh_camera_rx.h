@@ -19,6 +19,7 @@ typedef struct {
     int width;
     int height;
     int framerate;
+    char *flip; // "none", "horizontal-flip", "vertical-flip", "rotate-180"
 } Config;
 
 // Application state
@@ -34,6 +35,7 @@ typedef struct {
     GtkWidget *width_spin;
     GtkWidget *height_spin;
     GtkWidget *framerate_spin;
+    GtkWidget *flip_combo;
     GtkWidget *status_label;
     GtkWidget *stream_button;
     

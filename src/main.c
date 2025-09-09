@@ -9,6 +9,7 @@ void app_init(App *app) {
     app->config.width = 1280;
     app->config.height = 720;
     app->config.framerate = 30;
+    app->config.flip = g_strdup("none");
     
     // Initialize state
     app->connected = FALSE;
@@ -46,6 +47,10 @@ void app_cleanup(App *app) {
     if (app->config.rx_host_ip) {
         g_free(app->config.rx_host_ip);
         app->config.rx_host_ip = NULL;
+    }
+    if (app->config.flip) {
+        g_free(app->config.flip);
+        app->config.flip = NULL;
     }
 }
 
