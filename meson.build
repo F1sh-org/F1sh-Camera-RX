@@ -38,6 +38,7 @@ executable(
     libcurl_dep,
     json_dep,
     microhttpd_dep,
+    threads_dep
   ],
   install : true
 )
