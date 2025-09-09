@@ -137,3 +137,43 @@ gboolean http_send_config(App *app) {
     
     return success;
 }
+
+gboolean http_send_rx_rotate(App *app, int rotate) {
+    if (!app->curl) return FALSE;
+
+    char url[128];
+    snprintf(url, sizeof(url), "http://127.0.0.1:8889/rotate");
+
+    json_t *root = json_object();
+    json_object_set_new(root, "rotate", json_integer(rotate));
+    char *json_string = json_dumps(root, 0);
+    json_decref(root);
+    if (!json_string) return FALSE;
+
+    struct HttpResponse response = {0};
+    struct curl_slist *headers = NULL;
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+
+    curl_easy_reset(app->curl);
+    curl_easy_setopt(app->curl, CURLOPT_URL, url);
+    curl_easy_setopt(app->curl, CURLOPT_POSTFIELDS, json_string);
+    curl_easy_setopt(app->curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(app->curl, CURLOPT_WRITEFUNCTION, write_callback);
+    curl_easy_setopt(app->curl, CURLOPT_WRITEDATA, &response);
+    curl_easy_setopt(app->curl, CURLOPT_TIMEOUT, 5L);
+
+    CURLcode res = curl_easy_perform(app->curl);
+
+    curl_slist_free_all(headers);
+    free(json_string);
+
+    gboolean success = FALSE;
+    if (res == CURLE_OK) {
+        success = TRUE;
+    } else {
+        printf("Rotate POST failed: %s\n", curl_easy_strerror(res));
+    }
+
+    if (response.data) free(response.data);
+    return success;
+}

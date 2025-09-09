@@ -1,3 +1,17 @@
+Packaging (macOS)
+-----------------
+
+The meson build is configured to produce a macOS bundle with rpaths. To create a portable app:
+
+1. Build the app:
+   - Use the provided VS Code task or `meson compile -C builddir`.
+2. Copy dependencies into the bundle:
+   - Place GStreamer.framework under `f1sh-camera-rx.app/Contents/Frameworks/` (or place plugins under `Contents/Resources/gstreamer-1.0/` and `gst-plugin-scanner` under `Contents/Resources/`).
+   - Copy GTK and other .dylibs into `Contents/Frameworks/` and fix their install names with `install_name_tool` or use `macpack`/`dylibbundler`.
+3. The app sets GST_PLUGIN_SYSTEM_PATH and GST_PLUGIN_SCANNER at startup to the embedded locations.
+
+Notes: On first run, the GStreamer registry cache is written into `~/Library/Caches/f1sh-camera-rx/`.
+
 # F1sh Camera RX
 
 A clean and simple H.264 video stream receiver for the F1sh Camera system.

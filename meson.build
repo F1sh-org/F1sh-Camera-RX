@@ -16,11 +16,13 @@ gstreamer_video_dep = dependency('gstreamer-video-1.0')
 threads_dep = dependency('threads')
 libcurl_dep = dependency('libcurl')
 json_dep = dependency('jansson')
+microhttpd_dep = dependency('libmicrohttpd')
 
 # Source files
 sources = [
   'src/main.c',
   'src/http_client.c',
+  'src/http_server.c',
   'src/ui.c',
   'src/stream.c'
 ]
@@ -35,7 +37,11 @@ executable(
     gstreamer_video_dep,
     libcurl_dep,
     json_dep,
-    threads_dep
+  microhttpd_dep,
+  install : true,
+  gui_app : true,
+  macos_bundle : true,
+  install_rpath : ['@executable_path/../Frameworks', '@loader_path/../Frameworks']
   ],
   install : true
 )

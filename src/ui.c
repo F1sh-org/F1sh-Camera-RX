@@ -49,6 +49,7 @@ static void on_connect_clicked(GtkButton *button, gpointer user_data) {
     app->config.width = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(app->width_spin));
     app->config.height = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(app->height_spin));
     app->config.framerate = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(app->framerate_spin));
+    app->config.rotate = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(app->rotate_spin));
     
     // Test connection first
     if (!http_test_connection(app)) {
@@ -62,6 +63,12 @@ static void on_connect_clicked(GtkButton *button, gpointer user_data) {
         return;
     }
     
+    // Also send rotate to local RX server
+    if (!http_send_rx_rotate(app, app->config.rotate)) {
+        ui_update_status(app, "Failed to set rotate on RX server");
+        return;
+    }
+
     ui_update_status(app, "Configuration sent to TX server");
 }
 
@@ -183,6 +190,14 @@ void ui_create(App *app) {
     app->framerate_spin = gtk_spin_button_new_with_range(1, 120, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(app->framerate_spin), 30);
     gtk_grid_attach(GTK_GRID(config_grid), app->framerate_spin, 1, row, 1, 1);
+
+    row++;
+    label = gtk_label_new("Rotate (0-3):");
+    gtk_widget_set_halign(label, GTK_ALIGN_END);
+    gtk_grid_attach(GTK_GRID(config_grid), label, 0, row, 1, 1);
+    app->rotate_spin = gtk_spin_button_new_with_range(0, 3, 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(app->rotate_spin), 0);
+    gtk_grid_attach(GTK_GRID(config_grid), app->rotate_spin, 1, row, 1, 1);
     
     // Control buttons
     GtkWidget *button_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);

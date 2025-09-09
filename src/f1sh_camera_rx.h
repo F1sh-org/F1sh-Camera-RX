@@ -19,6 +19,7 @@ typedef struct {
     int width;
     int height;
     int framerate;
+    int rotate; // 0: none, 1: 90, 2: 180, 3: 270
 } Config;
 
 // Application state
@@ -34,6 +35,7 @@ typedef struct {
     GtkWidget *width_spin;
     GtkWidget *height_spin;
     GtkWidget *framerate_spin;
+    GtkWidget *rotate_spin;
     GtkWidget *status_label;
     GtkWidget *stream_button;
     
@@ -61,9 +63,14 @@ void ui_update_status(App *app, const char *status);
 // http_client.c
 gboolean http_test_connection(App *app);
 gboolean http_send_config(App *app);
+gboolean http_send_rx_rotate(App *app, int rotate);
 
 // stream.c
 gboolean stream_start(App *app);
 void stream_stop(App *app);
+
+// http_server.c
+void http_server_start(App *app); // starts HTTP server on port 8889 in background thread
+void http_server_stop(App *app);
 
 #endif // F1SH_CAMERA_RX_H
