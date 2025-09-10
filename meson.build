@@ -37,11 +37,7 @@ executable(
     gstreamer_video_dep,
     libcurl_dep,
     json_dep,
-  microhttpd_dep,
-  install : true,
-  gui_app : true,
-  macos_bundle : true,
-  install_rpath : ['@executable_path/../Frameworks', '@loader_path/../Frameworks']
+    microhttpd_dep,
   ],
   install : true
 )
