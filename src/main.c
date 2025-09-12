@@ -78,6 +78,9 @@ static void setup_gstreamer_env(void) {
             gchar *plugins2 = g_build_filename(dir, "lib", "gstreamer-1.0", NULL);
             gchar *scanner1 = g_build_filename(dir, "gst-plugin-scanner.exe", NULL);
             gchar *scanner2 = g_build_filename(dir, "libexec", "gstreamer-1.0", "gst-plugin-scanner.exe", NULL);
+            // GTK / GSettings / GDK pixbuf assets
+            gchar *schemas_dir = g_build_filename(dir, "share", "glib-2.0", "schemas", NULL);
+            gchar *pixbuf_cache = g_build_filename(dir, "lib", "gdk-pixbuf-2.0", "2.10.0", "loaders.cache", NULL);
 
             const gchar *plugins_final = NULL;
             const gchar *scanner_final = NULL;
@@ -89,6 +92,15 @@ static void setup_gstreamer_env(void) {
 
             if (plugins_final) g_setenv("GST_PLUGIN_SYSTEM_PATH", plugins_final, TRUE);
             if (scanner_final) g_setenv("GST_PLUGIN_SCANNER", scanner_final, TRUE);
+
+            // Point GSettings to bundled compiled schemas (generated during packaging)
+            if (g_file_test(schemas_dir, G_FILE_TEST_IS_DIR)) {
+                g_setenv("GSETTINGS_SCHEMA_DIR", schemas_dir, TRUE);
+            }
+            // Point GDK pixbuf to bundled loader cache if present
+            if (g_file_test(pixbuf_cache, G_FILE_TEST_EXISTS)) {
+                g_setenv("GDK_PIXBUF_MODULE_FILE", pixbuf_cache, TRUE);
+            }
 
             // Ensure our exe dir is on DLL search path so co-located DLLs are found
             SetDllDirectoryW(wexe); // NOTE: this sets to full path; adjust to directory below
@@ -110,6 +122,8 @@ static void setup_gstreamer_env(void) {
             g_free(plugins2);
             g_free(scanner1);
             g_free(scanner2);
+            g_free(schemas_dir);
+            g_free(pixbuf_cache);
             g_free(dir);
             g_free(exe_u8);
         }
