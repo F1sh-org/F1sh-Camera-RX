@@ -142,7 +142,7 @@ gboolean http_send_rx_rotate(App *app, int rotate) {
     if (!app->curl) return FALSE;
 
     char url[128];
-    snprintf(url, sizeof(url), "http://127.0.0.1:8889/rotate");
+    snprintf(url, sizeof(url), "http://%s:8889/rotate", app->config.rx_host_ip);
 
     json_t *root = json_object();
     json_object_set_new(root, "rotate", json_integer(rotate));
