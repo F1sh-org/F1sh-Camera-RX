@@ -39,6 +39,8 @@ On Windows, use MSYS2:
    pacman -S mingw-w64-ucrt-x86_64-curl
    pacman -S mingw-w64-ucrt-x86_64-jansson
    pacman -S mingw-w64-ucrt-x86_64-meson
+   pacman -S mingw-w64-ucrt-x86_64-cmake
+   pacman -S mingw-w64-ucrt-x86_64-libmicrohttpd
    ```
 
 3. **Build the project**:
