@@ -76,16 +76,29 @@ gboolean stream_start(App *app) {
              app->config.rx_stream_port, flip);
 #elif defined(G_OS_WIN32)
     // Prefer D3D11 decoder/sink on Windows
-    snprintf(pipeline_desc, sizeof(pipeline_desc),
-             "udpsrc port=%d buffer-size=65536 ! "
-             "application/x-rtp,encoding-name=H264,payload=96 ! "
-             "rtph264depay ! "
-             "h264parse ! "
-             "d3d11h264dec ! "
-             "d3d11convert%s ! "
-             "queue max-size-buffers=1 leaky=downstream ! "
-             "d3d11videosink sync=false",
-             app->config.rx_stream_port, flip);
+    if (app->config.rotate && have_flip) {
+        // Insert d3d11download after d3d11convert for compatibility
+        snprintf(pipeline_desc, sizeof(pipeline_desc),
+                 "udpsrc port=%d buffer-size=65536 ! "
+                 "application/x-rtp,encoding-name=H264,payload=96 ! "
+                 "rtph264depay ! "
+                 "h264parse ! "
+                 "d3d11h264dec ! "
+                 "d3d11convert ! d3d11download ! videoconvert ! videoflip method=%s ! videoconvert ! queue max-size-buffers=1 leaky=downstream ! d3d11videosink sync=false",
+                 app->config.rx_stream_port,
+                 app->config.rotate == 1 ? "clockwise" :
+                 app->config.rotate == 2 ? "rotate-180" :
+                 app->config.rotate == 3 ? "counterclockwise" : "none");
+    } else {
+        snprintf(pipeline_desc, sizeof(pipeline_desc),
+                 "udpsrc port=%d buffer-size=65536 ! "
+                 "application/x-rtp,encoding-name=H264,payload=96 ! "
+                 "rtph264depay ! "
+                 "h264parse ! "
+                 "d3d11h264dec ! "
+                 "d3d11convert ! d3d11download ! videoconvert ! queue max-size-buffers=1 leaky=downstream ! d3d11videosink sync=false",
+                 app->config.rx_stream_port);
+    }
 #else
     // Generic attempt (e.g., vaapi/nvdec could be added if desired)
     snprintf(pipeline_desc, sizeof(pipeline_desc),
@@ -94,7 +107,7 @@ gboolean stream_start(App *app) {
              "rtph264depay ! "
              "h264parse ! "
              "avdec_h264 ! "
-             "videoconvert%s ! "
+             "videoconvert ! video/x-raw%s ! "
              "queue max-size-buffers=1 leaky=downstream ! "
              "autovideosink sync=false",
              app->config.rx_stream_port, flip);
@@ -115,15 +128,15 @@ gboolean stream_start(App *app) {
         }
 
     snprintf(pipeline_desc, sizeof(pipeline_desc),
-                 "udpsrc port=%d buffer-size=65536 ! "
-                 "application/x-rtp,encoding-name=H264,payload=96 ! "
-                 "rtph264depay ! "
-                 "h264parse ! "
+         "udpsrc port=%d buffer-size=65536 ! "
+         "application/x-rtp,encoding-name=H264,payload=96 ! "
+         "rtph264depay ! "
+         "h264parse ! "
          "avdec_h264 ! "
-         "videoconvert%s ! "
-                 "queue max-size-buffers=1 leaky=downstream ! "
-                 "autovideosink sync=false",
-         app->config.rx_stream_port, flip);
+         "videoconvert ! video/x-raw%s ! "
+         "queue max-size-buffers=1 leaky=downstream ! "
+         "autovideosink sync=false",
+     app->config.rx_stream_port, flip);
 
         printf("Creating fallback pipeline: %s\n", pipeline_desc);
         app->pipeline = gst_parse_launch(pipeline_desc, &error);
