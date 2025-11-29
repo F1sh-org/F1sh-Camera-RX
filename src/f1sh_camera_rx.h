@@ -29,12 +29,9 @@ typedef struct {
     // GTK widgets
     GtkWidget *window;
     GtkWidget *tx_ip_entry;
-    GtkWidget *tx_port_spin;
     GtkWidget *rx_ip_entry;
-    GtkWidget *rx_port_spin;
-    GtkWidget *width_spin;
-    GtkWidget *height_spin;
-    GtkWidget *framerate_spin;
+    GtkWidget *resolution_combo;
+    GtkWidget *framerate_combo;
     GtkWidget *rotate_spin;
     GtkWidget *status_label;
     GtkWidget *stream_button;

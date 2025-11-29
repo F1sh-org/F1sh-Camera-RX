@@ -1,5 +1,55 @@
 #include "f1sh_camera_rx.h"
 
+typedef struct {
+    const char *label;
+    int width;
+    int height;
+} ResolutionPreset;
+
+static const ResolutionPreset kResolutionPresets[] = {
+    { "1280 x 720", 1280, 720 },
+    { "1920 x 1080", 1920, 1080 },
+};
+
+static const int kFrameratePresets[] = { 30, 50, 60 };
+
+static void apply_resolution_selection(App *app) {
+    if (!app || !GTK_IS_COMBO_BOX(app->resolution_combo)) {
+        return;
+    }
+
+    gint index = gtk_combo_box_get_active(GTK_COMBO_BOX(app->resolution_combo));
+    if (index < 0 || index >= (gint)G_N_ELEMENTS(kResolutionPresets)) {
+        index = 0;
+        gtk_combo_box_set_active(GTK_COMBO_BOX(app->resolution_combo), index);
+    }
+
+    app->config.width = kResolutionPresets[index].width;
+    app->config.height = kResolutionPresets[index].height;
+}
+
+static void apply_framerate_selection(App *app) {
+    if (!app || !GTK_IS_COMBO_BOX(app->framerate_combo)) {
+        return;
+    }
+
+    gint index = gtk_combo_box_get_active(GTK_COMBO_BOX(app->framerate_combo));
+    if (index < 0 || index >= (gint)G_N_ELEMENTS(kFrameratePresets)) {
+        index = 0;
+        gtk_combo_box_set_active(GTK_COMBO_BOX(app->framerate_combo), index);
+    }
+
+    app->config.framerate = kFrameratePresets[index];
+}
+
+static void on_resolution_changed(GtkComboBox *combo __attribute__((unused)), gpointer user_data) {
+    apply_resolution_selection((App*)user_data);
+}
+
+static void on_framerate_changed(GtkComboBox *combo __attribute__((unused)), gpointer user_data) {
+    apply_framerate_selection((App*)user_data);
+}
+
 static void on_test_connection_clicked(GtkButton *button __attribute__((unused)), gpointer user_data) {
     App *app = (App*)user_data;
     
@@ -8,13 +58,14 @@ static void on_test_connection_clicked(GtkButton *button __attribute__((unused))
         return;
     }
     
-    // Safely update config from UI
     if (app->config.tx_server_ip) {
         g_free(app->config.tx_server_ip);
         app->config.tx_server_ip = NULL;
     }
     app->config.tx_server_ip = g_strdup(gtk_entry_get_text(GTK_ENTRY(app->tx_ip_entry)));
-    app->config.tx_http_port = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(app->tx_port_spin));
+    
+    apply_resolution_selection(app);
+    apply_framerate_selection(app);
     
     if (http_test_connection(app)) {
         ui_update_status(app, "Connection OK");
@@ -23,7 +74,7 @@ static void on_test_connection_clicked(GtkButton *button __attribute__((unused))
     }
 }
 
-static void on_connect_clicked(GtkButton *button, gpointer user_data) {
+static void on_connect_clicked(GtkButton *button __attribute__((unused)), gpointer user_data) {
     App *app = (App*)user_data;
     
     if (!app) {
@@ -31,24 +82,19 @@ static void on_connect_clicked(GtkButton *button, gpointer user_data) {
         return;
     }
     
-    // Safely update all config from UI
     if (app->config.tx_server_ip) {
         g_free(app->config.tx_server_ip);
         app->config.tx_server_ip = NULL;
     }
     app->config.tx_server_ip = g_strdup(gtk_entry_get_text(GTK_ENTRY(app->tx_ip_entry)));
-    app->config.tx_http_port = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(app->tx_port_spin));
     
+    apply_resolution_selection(app);
+    apply_framerate_selection(app);
     if (app->config.rx_host_ip) {
         g_free(app->config.rx_host_ip);
         app->config.rx_host_ip = NULL;
     }
     app->config.rx_host_ip = g_strdup(gtk_entry_get_text(GTK_ENTRY(app->rx_ip_entry)));
-    app->config.rx_stream_port = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(app->rx_port_spin));
-    
-    app->config.width = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(app->width_spin));
-    app->config.height = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(app->height_spin));
-    app->config.framerate = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(app->framerate_spin));
     app->config.rotate = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(app->rotate_spin));
     
     // Test connection first
@@ -134,70 +180,81 @@ void ui_create(App *app) {
     gtk_widget_set_margin_top(config_grid, 15);
     gtk_widget_set_margin_bottom(config_grid, 15);
     
-    // TX Server settings
     int row = 0;
     GtkWidget *label = gtk_label_new("TX Server IP:");
     gtk_widget_set_halign(label, GTK_ALIGN_END);
     gtk_grid_attach(GTK_GRID(config_grid), label, 0, row, 1, 1);
     app->tx_ip_entry = gtk_entry_new();
-    gtk_entry_set_text(GTK_ENTRY(app->tx_ip_entry), "127.0.0.1");
+    if (app->config.tx_server_ip) {
+        gtk_entry_set_text(GTK_ENTRY(app->tx_ip_entry), app->config.tx_server_ip);
+    } else {
+        gtk_entry_set_text(GTK_ENTRY(app->tx_ip_entry), "127.0.0.1");
+    }
     gtk_grid_attach(GTK_GRID(config_grid), app->tx_ip_entry, 1, row, 1, 1);
-    
-    row++;
-    label = gtk_label_new("TX Server Port:");
-    gtk_widget_set_halign(label, GTK_ALIGN_END);
-    gtk_grid_attach(GTK_GRID(config_grid), label, 0, row, 1, 1);
-    app->tx_port_spin = gtk_spin_button_new_with_range(1, 65535, 1);
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(app->tx_port_spin), 8888);
-    gtk_grid_attach(GTK_GRID(config_grid), app->tx_port_spin, 1, row, 1, 1);
-    
+
     row++;
     label = gtk_label_new("RX Host IP:");
     gtk_widget_set_halign(label, GTK_ALIGN_END);
     gtk_grid_attach(GTK_GRID(config_grid), label, 0, row, 1, 1);
     app->rx_ip_entry = gtk_entry_new();
-    gtk_entry_set_text(GTK_ENTRY(app->rx_ip_entry), "127.0.0.1");
+    if (app->config.rx_host_ip) {
+        gtk_entry_set_text(GTK_ENTRY(app->rx_ip_entry), app->config.rx_host_ip);
+    } else {
+        gtk_entry_set_text(GTK_ENTRY(app->rx_ip_entry), "127.0.0.1");
+    }
     gtk_grid_attach(GTK_GRID(config_grid), app->rx_ip_entry, 1, row, 1, 1);
-    
+
     row++;
-    label = gtk_label_new("RX Stream Port:");
+    label = gtk_label_new("Resolution Preset:");
     gtk_widget_set_halign(label, GTK_ALIGN_END);
     gtk_grid_attach(GTK_GRID(config_grid), label, 0, row, 1, 1);
-    app->rx_port_spin = gtk_spin_button_new_with_range(1, 65535, 1);
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(app->rx_port_spin), 5000);
-    gtk_grid_attach(GTK_GRID(config_grid), app->rx_port_spin, 1, row, 1, 1);
-    
+    app->resolution_combo = gtk_combo_box_text_new();
+    for (guint i = 0; i < G_N_ELEMENTS(kResolutionPresets); ++i) {
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(app->resolution_combo), kResolutionPresets[i].label);
+    }
+    gint resolution_index = 0;
+    for (guint i = 0; i < G_N_ELEMENTS(kResolutionPresets); ++i) {
+        if (app->config.width == kResolutionPresets[i].width &&
+            app->config.height == kResolutionPresets[i].height) {
+            resolution_index = (gint)i;
+            break;
+        }
+    }
+    gtk_combo_box_set_active(GTK_COMBO_BOX(app->resolution_combo), resolution_index);
+    g_signal_connect(app->resolution_combo, "changed", G_CALLBACK(on_resolution_changed), app);
+    gtk_grid_attach(GTK_GRID(config_grid), app->resolution_combo, 1, row, 1, 1);
+    apply_resolution_selection(app);
+
     row++;
-    label = gtk_label_new("Width:");
+    label = gtk_label_new("Framerate Preset:");
     gtk_widget_set_halign(label, GTK_ALIGN_END);
     gtk_grid_attach(GTK_GRID(config_grid), label, 0, row, 1, 1);
-    app->width_spin = gtk_spin_button_new_with_range(320, 4096, 8);
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(app->width_spin), 1280);
-    gtk_grid_attach(GTK_GRID(config_grid), app->width_spin, 1, row, 1, 1);
-    
-    row++;
-    label = gtk_label_new("Height:");
-    gtk_widget_set_halign(label, GTK_ALIGN_END);
-    gtk_grid_attach(GTK_GRID(config_grid), label, 0, row, 1, 1);
-    app->height_spin = gtk_spin_button_new_with_range(240, 2160, 8);
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(app->height_spin), 720);
-    gtk_grid_attach(GTK_GRID(config_grid), app->height_spin, 1, row, 1, 1);
-    
-    row++;
-    label = gtk_label_new("Framerate:");
-    gtk_widget_set_halign(label, GTK_ALIGN_END);
-    gtk_grid_attach(GTK_GRID(config_grid), label, 0, row, 1, 1);
-    app->framerate_spin = gtk_spin_button_new_with_range(1, 120, 1);
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(app->framerate_spin), 30);
-    gtk_grid_attach(GTK_GRID(config_grid), app->framerate_spin, 1, row, 1, 1);
+    app->framerate_combo = gtk_combo_box_text_new();
+    for (guint i = 0; i < G_N_ELEMENTS(kFrameratePresets); ++i) {
+        char text[32];
+        snprintf(text, sizeof(text), "%d fps", kFrameratePresets[i]);
+        gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(app->framerate_combo), text);
+    }
+    gint framerate_index = 0;
+    for (guint i = 0; i < G_N_ELEMENTS(kFrameratePresets); ++i) {
+        if (app->config.framerate == kFrameratePresets[i]) {
+            framerate_index = (gint)i;
+            break;
+        }
+    }
+    gtk_combo_box_set_active(GTK_COMBO_BOX(app->framerate_combo), framerate_index);
+    g_signal_connect(app->framerate_combo, "changed", G_CALLBACK(on_framerate_changed), app);
+    gtk_grid_attach(GTK_GRID(config_grid), app->framerate_combo, 1, row, 1, 1);
+    apply_framerate_selection(app);
 
     row++;
     label = gtk_label_new("Rotate (0-3):");
     gtk_widget_set_halign(label, GTK_ALIGN_END);
     gtk_grid_attach(GTK_GRID(config_grid), label, 0, row, 1, 1);
     app->rotate_spin = gtk_spin_button_new_with_range(0, 3, 1);
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(app->rotate_spin), 0);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(app->rotate_spin), app->config.rotate);
     gtk_grid_attach(GTK_GRID(config_grid), app->rotate_spin, 1, row, 1, 1);
+
     
     // Control buttons
     GtkWidget *button_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
