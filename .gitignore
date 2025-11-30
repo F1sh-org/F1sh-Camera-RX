@@ -7,6 +7,7 @@ builddir/
 F1sh-Camera-RX
 *.exe
 *.app
+dist/
 
 # Object files
 *.o
