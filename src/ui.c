@@ -13,6 +13,11 @@ static const ResolutionPreset kResolutionPresets[] = {
 
 static const int kFrameratePresets[] = { 30, 50, 60 };
 
+static gboolean rotate_is_horizontal(int rotate)
+{
+    return (rotate % 2) != 0; // rotate = 1 or 3
+}
+
 static void apply_resolution_selection(App *app) {
     if (!app || !GTK_IS_COMBO_BOX(app->resolution_combo)) {
         return;
@@ -26,6 +31,12 @@ static void apply_resolution_selection(App *app) {
 
     app->config.width = kResolutionPresets[index].width;
     app->config.height = kResolutionPresets[index].height;
+
+    if (rotate_is_horizontal(app->config.rotate)) {
+        gint tmp = app->config.width;
+        app->config.width = app->config.height;
+        app->config.height = tmp;
+    }
 }
 
 static void apply_framerate_selection(App *app) {
@@ -50,6 +61,17 @@ static void on_framerate_changed(GtkComboBox *combo __attribute__((unused)), gpo
     apply_framerate_selection((App*)user_data);
 }
 
+static void on_rotate_changed(GtkSpinButton *spin __attribute__((unused)), gpointer user_data)
+{
+    App *app = (App*)user_data;
+    if (!app || !GTK_IS_SPIN_BUTTON(app->rotate_spin)) {
+        return;
+    }
+
+    app->config.rotate = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(app->rotate_spin));
+    apply_resolution_selection(app);
+}
+
 static void on_test_connection_clicked(GtkButton *button __attribute__((unused)), gpointer user_data) {
     App *app = (App*)user_data;
     
@@ -63,6 +85,7 @@ static void on_test_connection_clicked(GtkButton *button __attribute__((unused))
         app->config.tx_server_ip = NULL;
     }
     app->config.tx_server_ip = g_strdup(gtk_entry_get_text(GTK_ENTRY(app->tx_ip_entry)));
+    app->config.rotate = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(app->rotate_spin));
     
     apply_resolution_selection(app);
     apply_framerate_selection(app);
@@ -87,6 +110,7 @@ static void on_connect_clicked(GtkButton *button __attribute__((unused)), gpoint
         app->config.tx_server_ip = NULL;
     }
     app->config.tx_server_ip = g_strdup(gtk_entry_get_text(GTK_ENTRY(app->tx_ip_entry)));
+    app->config.rotate = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(app->rotate_spin));
     
     apply_resolution_selection(app);
     apply_framerate_selection(app);
@@ -95,7 +119,6 @@ static void on_connect_clicked(GtkButton *button __attribute__((unused)), gpoint
         app->config.rx_host_ip = NULL;
     }
     app->config.rx_host_ip = g_strdup(gtk_entry_get_text(GTK_ENTRY(app->rx_ip_entry)));
-    app->config.rotate = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(app->rotate_spin));
     
     // Test connection first
     if (!http_test_connection(app)) {
@@ -254,6 +277,7 @@ void ui_create(App *app) {
     app->rotate_spin = gtk_spin_button_new_with_range(0, 3, 1);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(app->rotate_spin), app->config.rotate);
     gtk_grid_attach(GTK_GRID(config_grid), app->rotate_spin, 1, row, 1, 1);
+    g_signal_connect(app->rotate_spin, "value-changed", G_CALLBACK(on_rotate_changed), app);
 
     
     // Control buttons
