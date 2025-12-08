@@ -24,7 +24,8 @@ sources = [
   'src/http_client.c',
   'src/http_server.c',
   'src/ui.c',
-  'src/stream.c'
+  'src/stream.c',
+  'src/serial_service.c'
 ]
 
 # Executable
