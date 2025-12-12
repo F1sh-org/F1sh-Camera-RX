@@ -28,13 +28,18 @@ typedef struct {
     
     // GTK widgets
     GtkWidget *window;
+    GtkWidget *login_window;
+    GtkWidget *config_window;
     GtkWidget *tx_ip_entry;
     GtkWidget *rx_ip_entry;
     GtkWidget *resolution_combo;
     GtkWidget *framerate_combo;
     GtkWidget *rotate_spin;
-    GtkWidget *status_label;
+    GtkWidget *config_status_label;
     GtkWidget *stream_button;
+    GtkWidget *username_entry;
+    GtkWidget *password_entry;
+    GtkWidget *camera_status;
     
     // GStreamer
     GstElement *pipeline;
@@ -54,7 +59,9 @@ void app_init(App *app);
 void app_cleanup(App *app);
 
 // ui.c
-void ui_create(App *app);
+void ui_main(App *app);
+void ui_configuration(App *app);
+void ui_login(App *app);
 void ui_update_status(App *app, const char *status);
 
 // http_client.c

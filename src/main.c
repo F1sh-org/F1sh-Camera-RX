@@ -196,7 +196,7 @@ int main(int argc, char *argv[]) {
     app_init(&app);
     
     // Create UI
-    ui_create(&app);
+    ui_main(&app);
 
     // Start local HTTP server (port 8889)
     http_server_start(&app);
