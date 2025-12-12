@@ -60,3 +60,7 @@ Important: Do not mix MSYS2 packages with the official GStreamer or GTK installe
 ```bash
 ./builddir/f1sh-camera-rx
 ```
+
+## Packaging
+
+See `docs/PACKAGING.md` for the automated Windows portable bundle and installer workflow built around MSYS2, trimmed GStreamer plugins, and Inno Setup.
