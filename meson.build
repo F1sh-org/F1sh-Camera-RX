@@ -23,22 +23,43 @@ sources = [
   'src/main.c',
   'src/http_client.c',
   'src/http_server.c',
-  'src/ui.c',
+  'src/ui_main.c',
+  'src/ui_login.c',
+  'src/ui_configuration.c',
+  'src/ui_log.c',
   'src/stream.c'
 ]
 
 # Executable
-executable(
-  'f1sh-camera-rx',
-  sources,
-  dependencies : [
-    gtk_dep,
-    gstreamer_dep,
-    gstreamer_video_dep,
-    libcurl_dep,
-    json_dep,
-    microhttpd_dep,
-    threads_dep
-  ],
-  install : true
-)
+if host_machine.system() == 'windows'
+  executable(
+    'f1sh-camera-rx',
+    sources,
+    dependencies : [
+      gtk_dep,
+      gstreamer_dep,
+      gstreamer_video_dep,
+      libcurl_dep,
+      json_dep,
+      microhttpd_dep,
+      threads_dep
+    ],
+    win_subsystem : 'windows',
+    install : true
+  )
+else
+  executable(
+    'f1sh-camera-rx',
+    sources,
+    dependencies : [
+      gtk_dep,
+      gstreamer_dep,
+      gstreamer_video_dep,
+      libcurl_dep,
+      json_dep,
+      microhttpd_dep,
+      threads_dep
+    ],
+    install : true
+  )
+endif

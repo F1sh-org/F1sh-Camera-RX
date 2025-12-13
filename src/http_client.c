@@ -4,6 +4,7 @@
 struct HttpResponse {
     char *data;
     size_t size;
+    App *app; // reference to app for logging in callbacks
 };
 
 // Callback to write HTTP response data
@@ -12,7 +13,7 @@ static size_t write_callback(void *contents, size_t size, size_t nmemb, struct H
     char *ptr = realloc(response->data, response->size + total_size + 1);
     
     if (!ptr) {
-        printf("Failed to allocate memory for HTTP response\n");
+        ui_log(response ? response->app : NULL, "Failed to allocate memory for HTTP response");
         return 0;
     }
     
@@ -26,7 +27,7 @@ static size_t write_callback(void *contents, size_t size, size_t nmemb, struct H
 
 gboolean http_test_connection(App *app) {
     if (!app->curl || !app->config.tx_server_ip) {
-        printf("HTTP client not initialized or no server IP\n");
+        ui_log(app, "HTTP client not initialized or no server IP");
         return FALSE;
     }
     
@@ -34,9 +35,10 @@ gboolean http_test_connection(App *app) {
     snprintf(url, sizeof(url), "http://%s:%d/health", 
              app->config.tx_server_ip, app->config.tx_http_port);
     
-    printf("Testing connection to: %s\n", url);
+    ui_log(app, "Testing connection to: %s", url);
     
     struct HttpResponse response = {0};
+    response.app = app;
     
     // Reset curl handle to clean state
     curl_easy_reset(app->curl);
@@ -50,7 +52,7 @@ gboolean http_test_connection(App *app) {
     
     gboolean success = FALSE;
     if (res == CURLE_OK && response.data) {
-        printf("Response: %s\n", response.data);
+        ui_log(app, "Response: %s", response.data);
         
         // Parse JSON response
         json_error_t error;
@@ -66,7 +68,7 @@ gboolean http_test_connection(App *app) {
             json_decref(root);
         }
     } else {
-        printf("HTTP request failed: %s\n", curl_easy_strerror(res));
+        ui_log(app, "HTTP request failed: %s", curl_easy_strerror(res));
     }
     
     if (response.data) {
@@ -97,14 +99,15 @@ gboolean http_send_config(App *app) {
     json_decref(config);
     
     if (!json_string) {
-        printf("Failed to create JSON config\n");
+        ui_log(app, "Failed to create JSON config");
         return FALSE;
     }
     
-    printf("Sending config to: %s\n", url);
-    printf("Config: %s\n", json_string);
+    ui_log(app, "Sending config to: %s", url);
+    ui_log(app, "Config: %s", json_string);
     
     struct HttpResponse response = {0};
+    response.app = app;
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, "Content-Type: application/json");
     
@@ -125,10 +128,10 @@ gboolean http_send_config(App *app) {
     
     gboolean success = FALSE;
     if (res == CURLE_OK && response.data) {
-        printf("Config response: %s\n", response.data);
+        ui_log(app, "Config response: %s", response.data);
         success = TRUE; // Assume success if we got any response
     } else {
-        printf("Config request failed: %s\n", curl_easy_strerror(res));
+        ui_log(app, "Config request failed: %s", curl_easy_strerror(res));
     }
     
     if (response.data) {
@@ -151,6 +154,7 @@ gboolean http_send_rx_rotate(App *app, int rotate) {
     if (!json_string) return FALSE;
 
     struct HttpResponse response = {0};
+    response.app = app;
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, "Content-Type: application/json");
 
@@ -171,7 +175,7 @@ gboolean http_send_rx_rotate(App *app, int rotate) {
     if (res == CURLE_OK) {
         success = TRUE;
     } else {
-        printf("Rotate POST failed: %s\n", curl_easy_strerror(res));
+        ui_log(app, "Rotate POST failed: %s", curl_easy_strerror(res));
     }
 
     if (response.data) free(response.data);

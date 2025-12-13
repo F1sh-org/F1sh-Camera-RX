@@ -6,7 +6,6 @@
 #include <gst/video/videooverlay.h>
 #include <curl/curl.h>
 #include <jansson.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -40,6 +39,13 @@ typedef struct {
     GtkWidget *username_entry;
     GtkWidget *password_entry;
     GtkWidget *camera_status;
+    GtkWidget *log_view;
+    GtkWidget *log_interactive_switch;
+    gboolean log_interactive;
+    guint log_event_press_handler_id;
+    guint log_event_release_handler_id;
+    guint log_event_enter_handler_id;
+    guint log_event_leave_handler_id;
     
     // GStreamer
     GstElement *pipeline;
@@ -58,11 +64,23 @@ typedef struct {
 void app_init(App *app);
 void app_cleanup(App *app);
 
-// ui.c
+// ui_main.c
 void ui_main(App *app);
-void ui_configuration(App *app);
-void ui_login(App *app);
+void on_widget_destroy(GtkWidget *widget, gpointer user_data);
+void on_open_stream_clicked(GtkButton *button, gpointer user_data);
 void ui_update_status(App *app, const char *status);
+
+// ui_configuration.c
+void ui_configuration(App *app);
+void ui_set_log_interactive(App *app, gboolean interactive);
+
+// ui_login.c
+void ui_login(App *app);
+
+// ui_log.c
+void ui_log(App *app, const char *format, ...);
+void ui_log_flush_buffer(App *app);
+void ui_log_discard_buffer(void);
 
 // http_client.c
 gboolean http_test_connection(App *app);

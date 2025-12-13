@@ -138,11 +138,11 @@ static void* server_thread(void *arg)
     server->daemon = MHD_start_daemon(MHD_USE_INTERNAL_POLLING_THREAD, RX_HTTP_PORT, NULL, NULL,
                                       (MHD_AccessHandlerCallback)access_handler, server, MHD_OPTION_END);
     if (!server->daemon) {
-        fprintf(stderr, "Failed to start HTTP server on port %d\n", RX_HTTP_PORT);
+        ui_log(server->app, "Failed to start HTTP server on port %d", RX_HTTP_PORT);
         server->running = FALSE;
         return NULL;
     }
-    printf("RX HTTP server listening on port %d\n", RX_HTTP_PORT);
+    ui_log(server->app, "RX HTTP server listening on port %d", RX_HTTP_PORT);
 
     // Keep thread alive while running
     while (server->running) {
@@ -161,7 +161,7 @@ void http_server_start(App *app)
     g_server.app = app;
     g_server.running = TRUE;
     if (pthread_create(&g_server.thread, NULL, server_thread, &g_server) != 0) {
-        fprintf(stderr, "Failed to create HTTP server thread\n");
+        ui_log(g_server.app, "Failed to create HTTP server thread");
         g_server.running = FALSE;
     }
 }

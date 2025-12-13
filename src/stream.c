@@ -8,22 +8,22 @@ static gboolean bus_callback(GstBus *bus __attribute__((unused)), GstMessage *me
             GError *error;
             gchar *debug;
             gst_message_parse_error(message, &error, &debug);
-            printf("GStreamer Error: %s\n", error->message);
-            printf("Debug info: %s\n", debug ? debug : "none");
+            ui_log(app, "GStreamer Error: %s", error->message);
+            ui_log(app, "Debug info: %s", debug ? debug : "none");
             g_error_free(error);
             g_free(debug);
             ui_update_status(app, "Stream Error");
             break;
         }
         case GST_MESSAGE_EOS:
-            printf("End of stream\n");
+            ui_log(app, "End of stream");
             ui_update_status(app, "Stream Ended");
             break;
         case GST_MESSAGE_STATE_CHANGED: {
             GstState old_state, new_state;
             gst_message_parse_state_changed(message, &old_state, &new_state, NULL);
             if (GST_MESSAGE_SRC(message) == GST_OBJECT(app->pipeline)) {
-                printf("Pipeline state changed from %s to %s\n",
+                ui_log(app, "Pipeline state changed from %s to %s",
                        gst_element_state_get_name(old_state),
                        gst_element_state_get_name(new_state));
                 
@@ -54,7 +54,7 @@ gboolean stream_start(App *app) {
     gboolean have_flip = (vf != NULL);
     if (vf) gst_object_unref(vf);
     if (!have_flip && app->config.rotate != 0) {
-        printf("Warning: GStreamer element 'videoflip' not found. Rotation disabled.\n");
+        ui_log(app, "Warning: GStreamer element 'videoflip' not found. Rotation disabled.");
         app->config.rotate = 0;
     }
     switch (app->config.rotate) {
@@ -113,16 +113,16 @@ gboolean stream_start(App *app) {
              app->config.rx_stream_port, flip);
 #endif
 
-    printf("Creating pipeline: %s\n", pipeline_desc);
+    ui_log(app, "Creating pipeline: %s", pipeline_desc);
 
     GError *error = NULL;
     app->pipeline = gst_parse_launch(pipeline_desc, &error);
 
     // Fallback: software decoder with autovideosink
     if (!app->pipeline || error) {
-        printf("HW pipeline failed, falling back to software decoder\n");
+        ui_log(app, "HW pipeline failed, falling back to software decoder");
         if (error) {
-            printf("HW pipeline error: %s\n", error->message);
+            ui_log(app, "HW pipeline error: %s", error->message);
             g_error_free(error);
             error = NULL;
         }
@@ -138,12 +138,12 @@ gboolean stream_start(App *app) {
          "autovideosink sync=false",
      app->config.rx_stream_port, flip);
 
-        printf("Creating fallback pipeline: %s\n", pipeline_desc);
+        ui_log(app, "Creating fallback pipeline: %s", pipeline_desc);
         app->pipeline = gst_parse_launch(pipeline_desc, &error);
     }
     
     if (!app->pipeline || error) {
-        printf("Failed to create pipeline: %s\n", error ? error->message : "Unknown error");
+        ui_log(app, "Failed to create pipeline: %s", error ? error->message : "Unknown error");
         if (error) g_error_free(error);
         return FALSE;
     }
@@ -170,14 +170,14 @@ gboolean stream_start(App *app) {
     // Start pipeline
     GstStateChangeReturn ret = gst_element_set_state(app->pipeline, GST_STATE_PLAYING);
     if (ret == GST_STATE_CHANGE_FAILURE) {
-        printf("Failed to start pipeline\n");
+        ui_log(app, "Failed to start pipeline");
         gst_object_unref(app->pipeline);
         app->pipeline = NULL;
         return FALSE;
     }
     
     app->streaming = TRUE;
-    printf("Low-latency stream started, listening on UDP port %d\n", app->config.rx_stream_port);
+    ui_log(app, "Low-latency stream started, listening on UDP port %d", app->config.rx_stream_port);
     return TRUE;
 }
 
@@ -187,7 +187,7 @@ void stream_stop(App *app) {
         app->bus_watch_id = 0;
     }
     if (app->pipeline) {
-        printf("Stopping stream\n");
+        ui_log(app, "Stopping stream");
         gst_element_set_state(app->pipeline, GST_STATE_NULL);
         gst_object_unref(app->pipeline);
         app->pipeline = NULL;
