@@ -29,13 +29,15 @@ typedef struct {
     GtkWidget *window;
     GtkWidget *login_window;
     GtkWidget *config_window;
+    GtkWidget *rotate_window;
     GtkWidget *tx_ip_entry;
     GtkWidget *rx_ip_entry;
     GtkWidget *resolution_combo;
     GtkWidget *framerate_combo;
     GtkWidget *rotate_spin;
     GtkWidget *config_status_label;
-    GtkWidget *stream_button;
+    GtkWidget *stream_button_main;
+    GtkWidget *stream_button_config;
     GtkWidget *username_entry;
     GtkWidget *password_entry;
     GtkWidget *camera_status;
@@ -81,6 +83,9 @@ void ui_login(App *app);
 void ui_log(App *app, const char *format, ...);
 void ui_log_flush_buffer(App *app);
 void ui_log_discard_buffer(void);
+
+// ui_rotate.c
+void ui_rotate(App *app);
 
 // http_client.c
 gboolean http_test_connection(App *app);

@@ -16,6 +16,20 @@ void on_widget_destroy(GtkWidget *widget __attribute__((unused)), gpointer user_
     gtk_widget_destroy(widget);
 }
 
+static void on_rotate_clicked(GtkButton *button __attribute__((unused)), gpointer user_data) {
+    App *app = (App*)user_data;
+    if (!app) {
+        ui_log(app, "Error: app is NULL in rotate");
+        return;
+    }
+    if (app->streaming) {
+        on_open_stream_clicked(NULL, app);
+        return;
+    }
+    ui_rotate(app);
+    ui_log(app, "Opened rotate settings");
+}
+
 static void on_config_clicked(GtkButton *button __attribute__((unused)), gpointer user_data) {
     App *app = (App*)user_data;
     if (!app) {
@@ -24,30 +38,6 @@ static void on_config_clicked(GtkButton *button __attribute__((unused)), gpointe
     }
     ui_login(app);
     ui_log(app, "Opened login window");
-}
-
-void on_open_stream_clicked(GtkButton *button __attribute__((unused)), gpointer user_data) {
-    App *app = (App*)user_data;
-    if (!app) {
-        ui_log(app, "Error: app is NULL in open stream");
-        return;
-    }
-    if (app->connected) {
-        // Stop streaming
-        stream_stop(app);
-        app->connected = FALSE;
-        gtk_button_set_label(GTK_BUTTON(app->stream_button), "Open Stream");
-        ui_update_status(app, "Stream stopped");
-        return;
-    }
-    // Start streaming (assumes config was already sent)
-    if (stream_start(app)) {
-        app->connected = TRUE;
-        gtk_button_set_label(GTK_BUTTON(app->stream_button), "Stop Stream");
-        ui_update_status(app, "Streaming");
-    } else {
-        ui_update_status(app, "Failed to start stream");
-    }
 }
 
 static void on_clear_log_clicked(GtkButton *button __attribute__((unused)), gpointer user_data) {
@@ -113,7 +103,7 @@ void ui_main(App *app) {
     app->log_view = log_view;
     
     GtkCssProvider *css = gtk_css_provider_new();
-    const char *css_data = ".log-scroll { border-radius: 10px; padding: 3px; background-color: #616161ff; } .log-text { font-family: consolas; font-size: 9pt; }";
+    const char *css_data = ".log-scroll { border-radius: 10px; padding: 3px; background-color: #ffffffff; } .log-text { font-family: consolas; font-size: 9pt; }";
     gtk_css_provider_load_from_data(css, css_data, -1, NULL);
     GdkScreen *screen = gtk_widget_get_screen(app->window);
     gtk_style_context_add_provider_for_screen(screen, GTK_STYLE_PROVIDER(css), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
@@ -146,8 +136,11 @@ void ui_main(App *app) {
 
     // Stream button
     GtkWidget *stream_btn = gtk_button_new_with_label("Open Stream");
-    app->stream_button = stream_btn;
-    g_signal_connect(stream_btn, "clicked", G_CALLBACK(on_open_stream_clicked), app);
+    app->stream_button_main = stream_btn;
+    if (app->streaming) {
+        gtk_button_set_label(GTK_BUTTON(stream_btn), "Stop Stream");
+    }
+    g_signal_connect(stream_btn, "clicked", G_CALLBACK(on_rotate_clicked), app);
     gtk_box_pack_start(GTK_BOX(button_box), stream_btn, FALSE, FALSE, 0);
 
 

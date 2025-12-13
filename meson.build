@@ -27,6 +27,7 @@ sources = [
   'src/ui_login.c',
   'src/ui_configuration.c',
   'src/ui_log.c',
+  'src/ui_rotate.c',
   'src/stream.c'
 ]
 

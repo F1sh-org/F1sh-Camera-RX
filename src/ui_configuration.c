@@ -109,6 +109,32 @@ static void on_connect_clicked(GtkButton *button __attribute__((unused)), gpoint
     ui_update_status(app, "Configuration sent to TX server");
 }
 
+void on_open_stream_clicked(GtkButton *button __attribute__((unused)), gpointer user_data) {
+    App *app = (App*)user_data;
+    if (!app) {
+        ui_log(app, "Error: app is NULL in open stream");
+        return;
+    }
+    if (app->connected) {
+        // Stop streaming
+        stream_stop(app);
+        app->connected = FALSE;
+        if (app->stream_button_main) gtk_button_set_label(GTK_BUTTON(app->stream_button_main), "Open Stream");
+        if (app->stream_button_config) gtk_button_set_label(GTK_BUTTON(app->stream_button_config), "Open Stream");
+        ui_update_status(app, "Stream stopped");
+        return;
+    }
+    // Start streaming (assumes config was already sent)
+    if (stream_start(app)) {
+        app->connected = TRUE;
+        if (app->stream_button_main) gtk_button_set_label(GTK_BUTTON(app->stream_button_main), "Stop Stream");
+        if (app->stream_button_config) gtk_button_set_label(GTK_BUTTON(app->stream_button_config), "Stop Stream");
+        ui_update_status(app, "Streaming");
+    } else {
+        ui_update_status(app, "Failed to start stream");
+    }
+}
+
 static void on_log_interactive_toggled(GtkSwitch *sw, GParamSpec *pspec, gpointer user_data) {
     (void)pspec; // unused
     App *app = (App*)user_data;
@@ -240,7 +266,10 @@ void ui_configuration(App *app) {
     gtk_box_pack_start(GTK_BOX(config_button_box), connect_btn, FALSE, FALSE, 0);
     
     GtkWidget *stream_btn = gtk_button_new_with_label("Open Stream");
-    app->stream_button = stream_btn;
+    app->stream_button_config = stream_btn;
+    if (app->streaming) {
+        gtk_button_set_label(GTK_BUTTON(stream_btn), "Stop Stream");
+    }
     g_signal_connect(stream_btn, "clicked", G_CALLBACK(on_open_stream_clicked), app);
     gtk_box_pack_start(GTK_BOX(config_button_box), stream_btn, FALSE, FALSE, 0);
     
