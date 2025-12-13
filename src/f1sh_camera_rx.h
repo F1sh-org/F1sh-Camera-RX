@@ -41,6 +41,7 @@ typedef struct {
     GtkWidget *username_entry;
     GtkWidget *password_entry;
     GtkWidget *camera_status;
+    GtkWidget *serial_status_label;
     GtkWidget *log_view;
     GtkWidget *log_interactive_switch;
     gboolean log_interactive;
@@ -91,6 +92,9 @@ void ui_rotate(App *app);
 gboolean http_test_connection(App *app);
 gboolean http_send_config(App *app);
 gboolean http_send_rx_rotate(App *app, int rotate);
+
+// serial_probe.c
+char *serial_find_camera_port(App *app);
 
 // stream.c
 gboolean stream_start(App *app);

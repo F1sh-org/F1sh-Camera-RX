@@ -25,22 +25,22 @@ static gboolean on_rotate_draw(GtkWidget *widget, cairo_t *cr, gpointer user_dat
     double angle = (double)app->config.rotate * (G_PI / 2.0);
     cairo_rotate(cr, angle);
 
-    // Compute rectangle position (upper half)
-    double y_offset = -bh * 0.4; // move up to appear in the upper half
+    // Compute rectangle position: center the shape in the drawing area
+    double y_offset = 0; 
     double x = -bw / 2.0;
     double y = -bh / 2.0 + y_offset;
 
     // Draw filled body and outline
     cairo_set_line_width(cr, 2.0 * scale);
-    cairo_set_source_rgb(cr, 0.9, 0.9, 0.9); // fill color
+    cairo_set_source_rgb(cr, 0.9, 0.9, 0.9);
     cairo_rectangle(cr, x, y, bw, bh);
     cairo_fill_preserve(cr);
     cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
     cairo_stroke(cr);
 
     // Lens: outer (light) and inner (dark)
-    double lens_x = x + bw * 0.5; // center horizontally
-    double lens_y = y + bh * 0.25; // center of the upper half vertically
+    double lens_x = x + bw * 0.5; 
+    double lens_y = y + bh * 0.25; 
     cairo_set_source_rgb(cr, 0.75, 0.75, 0.75);
     cairo_arc(cr, lens_x, lens_y, lens_r, 0, 2 * G_PI);
     cairo_fill_preserve(cr);

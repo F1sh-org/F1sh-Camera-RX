@@ -16,6 +16,39 @@ void on_widget_destroy(GtkWidget *widget __attribute__((unused)), gpointer user_
     gtk_widget_destroy(widget);
 }
 
+// Serial scan helper types and functions (file-scope)
+typedef struct { App *app; char *port; } SerialUpdate;
+
+static gboolean update_serial_label_idle(gpointer data) {
+    SerialUpdate *u = (SerialUpdate*)data;
+    if (u && u->app && u->app->serial_status_label) {
+        if (u->port) {
+            char buf[256];
+            snprintf(buf, sizeof(buf), "COM port: %s", u->port);
+            gtk_label_set_text(GTK_LABEL(u->app->serial_status_label), buf);
+            ui_log(u->app, "Camera connected via COM port: %s", u->port);
+        } else {
+            gtk_label_set_text(GTK_LABEL(u->app->serial_status_label), "No camera connected via COM port");
+            ui_log(u->app, "No camera connected via COM port");
+        }
+    }
+    if (u) {
+        if (u->port) g_free(u->port);
+        g_free(u);
+    }
+    return FALSE;
+}
+
+static gpointer serial_scan_thread(gpointer user_data) {
+    App *a = (App*)user_data;
+    char *port = serial_find_camera_port(a);
+    SerialUpdate *u = g_new0(SerialUpdate, 1);
+    u->app = a;
+    u->port = port; // may be NULL
+    g_idle_add(update_serial_label_idle, u);
+    return NULL;
+}
+
 static void on_rotate_clicked(GtkButton *button __attribute__((unused)), gpointer user_data) {
     App *app = (App*)user_data;
     if (!app) {
@@ -117,12 +150,16 @@ void ui_main(App *app) {
 
     // Camera connection status
     if (!http_test_connection(app)) {
-        app->camera_status = gtk_label_new("No camera connected");
+        app->camera_status = gtk_label_new("No camera connected wirelessly");
         gtk_box_pack_start(GTK_BOX(main_box), app->camera_status, FALSE, FALSE, 0);
     } else {
-        app->camera_status = gtk_label_new("Connected to camera");
+        app->camera_status = gtk_label_new("Connected to camera wirelessly");
         gtk_box_pack_start(GTK_BOX(main_box), app->camera_status, FALSE, FALSE, 0);
     }
+
+    // Serial port status (will be updated asynchronously)
+    app->serial_status_label = gtk_label_new("Searching for camera...");
+    gtk_box_pack_start(GTK_BOX(main_box), app->serial_status_label, FALSE, FALSE, 0);
 
     // Buttons
     GtkWidget *button_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
@@ -155,4 +192,7 @@ void ui_main(App *app) {
     gtk_box_pack_start(GTK_BOX(button_box), clear_btn, FALSE, FALSE, 0);
 
     gtk_widget_show_all(app->window);
+
+    // Start background scan for camera serial port
+    g_thread_new("serial-scan", serial_scan_thread, app);
 }

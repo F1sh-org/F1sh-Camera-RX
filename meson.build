@@ -28,6 +28,7 @@ sources = [
   'src/ui_configuration.c',
   'src/ui_log.c',
   'src/ui_rotate.c',
+  'src/serial_probe.c',
   'src/stream.c'
 ]
 
