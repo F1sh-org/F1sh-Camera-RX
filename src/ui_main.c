@@ -166,19 +166,44 @@ static gpointer setup_camera_thread(gpointer user_data) {
 
     json_t *status = json_object_get(root, "status");
     json_t *payload = json_object_get(root, "payload");
-    if (!json_is_integer(status) || json_integer_value(status) != 4 || !json_is_array(payload)) {
+    json_t *payload_array = NULL;
+
+    gboolean payload_from_root = FALSE;
+
+    if (json_is_array(payload)) {
+        payload_array = payload;
+        payload_from_root = TRUE;
+    } else if (json_is_string(payload)) {
+        // Some firmware returns payload as a JSON string; parse it if so
+        const char *payload_str = json_string_value(payload);
+        if (payload_str) {
+            json_error_t perr;
+            json_t *parsed = json_loads(payload_str, 0, &perr);
+            if (parsed && json_is_array(parsed)) {
+                payload_array = parsed; // owns new ref, not tied to root
+            } else {
+                ui_log(app, "Invalid payload JSON from camera: %s", perr.text);
+                if (parsed) json_decref(parsed);
+            }
+        }
+    }
+
+    if (!json_is_integer(status) || json_integer_value(status) != 4 || !payload_array) {
         ui_log(app, "Unexpected setup reply from camera");
+        if (payload_array && payload_array != payload) json_decref(payload_array);
         json_decref(root);
         g_idle_add(setup_complete_idle, w);
         return NULL;
     }
 
-    // Increase ref for passing into idle/UI thread
-    json_incref(payload);
+    // Increase ref for passing into idle/UI thread only if owned by root
+    if (payload_from_root) {
+        json_incref(payload_array);
+    }
     typedef struct { App *app; json_t *list; } WifiListIdle;
     WifiListIdle *pl = g_new0(WifiListIdle, 1);
     pl->app = app;
-    pl->list = payload;
+    pl->list = payload_array;
     g_idle_add(wifi_list_idle, pl);
 
     json_decref(root);
@@ -232,6 +257,57 @@ static gboolean show_msg_idle(gpointer data) {
     g_free(d->msg);
     g_free(d);
     return FALSE;
+}
+
+// Load previously stored camera/TX configuration if available
+static void load_stored_camera_config(App *app)
+{
+    if (!app) return;
+    const char *store_path = "camera_tx.json";
+    FILE *f = fopen(store_path, "r");
+    if (!f) return;
+
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (sz <= 0 || sz > 1024 * 1024) { fclose(f); return; }
+
+    char *buf = g_malloc((size_t)sz + 1);
+    size_t n = fread(buf, 1, (size_t)sz, f);
+    fclose(f);
+    buf[n] = '\0';
+
+    json_error_t err;
+    json_t *root = json_loads(buf, 0, &err);
+    g_free(buf);
+    if (!root || !json_is_object(root)) {
+        if (root) json_decref(root);
+        return;
+    }
+
+    json_t *cip = json_object_get(root, "camera_ip");
+    if (json_is_string(cip)) {
+        const char *ip = json_string_value(cip);
+        if (ip && *ip) {
+            if (app->config.tx_server_ip) g_free(app->config.tx_server_ip);
+            app->config.tx_server_ip = g_strdup(ip);
+            ui_log(app, "Loaded stored camera IP: %s", ip);
+        }
+    }
+
+    json_t *tx = json_object_get(root, "tx");
+    if (json_is_object(tx)) {
+        json_t *port = json_object_get(tx, "port");
+        if (json_is_integer(port)) app->config.tx_http_port = (int)json_integer_value(port);
+        json_t *width = json_object_get(tx, "width");
+        if (json_is_integer(width)) app->config.width = (int)json_integer_value(width);
+        json_t *height = json_object_get(tx, "height");
+        if (json_is_integer(height)) app->config.height = (int)json_integer_value(height);
+        json_t *fr = json_object_get(tx, "framerate");
+        if (json_is_integer(fr)) app->config.framerate = (int)json_integer_value(fr);
+    }
+
+    json_decref(root);
 }
 
 static gboolean store_ip_idle(gpointer data) {
@@ -319,6 +395,17 @@ static gboolean store_ip_idle(gpointer data) {
         if (app->stream_button_main) gtk_widget_set_sensitive(app->stream_button_main, TRUE);
         if (app->stream_button_config) gtk_widget_set_sensitive(app->stream_button_config, TRUE);
 
+        // Send our device IP back to TX (status 23) so it knows where to reach the RX
+        NetworkInfo net = get_network_info();
+        if (net.success) {
+            ui_log(app, "Reporting local IP %s to TX", net.ip);
+            if (!http_send_ip_addr(app, net.ip)) {
+                ui_log(app, "Failed to report local IP %s to TX", net.ip);
+            }
+        } else {
+            ui_log(app, "Could not determine local IP to send to TX");
+        }
+
         // Inform user in dialog
         typedef struct { App *app; char *msg; gboolean is_error; } MsgData;
         MsgData *m = g_new0(MsgData, 1);
@@ -351,21 +438,17 @@ static gpointer send_wifi_thread(gpointer user_data) {
         return NULL;
     }
 
-    // Build inner JSON payload
+    // Build payload object directly so TX receives structured JSON
     json_t *inner = json_object();
     json_object_set_new(inner, "BSSID", json_string(w->bssid));
     json_object_set_new(inner, "pass", json_string(w->pass));
-    char *inner_str = json_dumps(inner, 0);
-    json_decref(inner);
-    if (!inner_str) inner_str = g_strdup("{}");
 
-    // Build outer JSON with status 22 and payload as string
+    // Build outer JSON with status 22 and payload as object
     json_t *root = json_object();
     json_object_set_new(root, "status", json_integer(22));
-    json_object_set_new(root, "payload", json_string(inner_str));
+    json_object_set_new(root, "payload", inner);
     char *cmd = json_dumps(root, 0);
     json_decref(root);
-    g_free(inner_str);
 
     if (!cmd) {
         typedef struct { App *app; char *msg; gboolean is_error; } MsgData;
@@ -447,6 +530,31 @@ static gpointer send_wifi_thread(gpointer user_data) {
             d->app = app;
             d->ip = g_strdup(ipstr);
             g_idle_add(store_ip_idle, d);
+        }
+
+        // Send our detected local IP back over serial so TX learns RX address even if HTTP fails
+        NetworkInfo net = get_network_info();
+        if (net.success && net.ip[0] != '\0') {
+            json_t *reply = json_object();
+            json_object_set_new(reply, "status", json_integer(23));
+            json_object_set_new(reply, "payload", json_pack("{s:s}", "IPAddr", net.ip));
+            char *out = json_dumps(reply, 0);
+            json_decref(reply);
+            if (out) {
+                char *out_nl = g_strdup_printf("%s\n", out);
+                g_free(out);
+                ui_log(app, "Reporting local IP %s to TX via serial %s", net.ip, w->port ? w->port : "(null)");
+                char *serial_resp = serial_send_receive(app, w->port, out_nl, 3000);
+                g_free(out_nl);
+                if (serial_resp) {
+                    ui_log(app, "TX serial ack: %s", serial_resp);
+                    g_free(serial_resp);
+                } else {
+                    ui_log(app, "No serial response when sending local IP to TX");
+                }
+            }
+        } else {
+            ui_log(app, "Could not determine local IP to send to TX via serial");
         }
     }
 
@@ -532,6 +640,9 @@ void ui_update_status(App *app, const char *status) {
 }
 
 void ui_main(App *app) {
+    // Load any stored camera/TX configuration before building UI and testing connection
+    load_stored_camera_config(app);
+
     // Main window
     app->window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(app->window), "F1sh Camera RX");

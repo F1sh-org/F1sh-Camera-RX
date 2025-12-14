@@ -164,6 +164,7 @@ void ui_wifi_show_list(App *app, json_t *list) {
     // If we have a valid local IP, send it to the TX server as status 23
     if (net.success && net.ip[0] != '\0' && app->config.tx_server_ip) {
         // Best-effort, log failures but do not block UI
+        ui_log(app, "Reporting local IP %s to TX", net.ip);
         if (!http_send_ip_addr(app, net.ip)) {
             ui_log(app, "Failed to send local IP to TX server: %s", net.ip);
         }

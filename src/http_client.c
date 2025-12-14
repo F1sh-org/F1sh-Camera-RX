@@ -188,9 +188,12 @@ gboolean http_send_ip_addr(App *app, const char *ip) {
     char url[256];
     snprintf(url, sizeof(url), "http://%s:%d/status", app->config.tx_server_ip, app->config.tx_http_port);
 
+    json_t *payload = json_object();
+    json_object_set_new(payload, "IPAddr", json_string(ip));
+
     json_t *root = json_object();
     json_object_set_new(root, "status", json_integer(23));
-    json_object_set_new(root, "IPAddr", json_string(ip));
+    json_object_set_new(root, "payload", payload);
     char *json_string = json_dumps(root, 0);
     json_decref(root);
     if (!json_string) return FALSE;
@@ -215,10 +218,10 @@ gboolean http_send_ip_addr(App *app, const char *ip) {
 
     gboolean success = FALSE;
     if (res == CURLE_OK) {
-        ui_log(app, "Sent IP to TX: %s", ip);
+        ui_log(app, "Sent IP to TX %s: %s", url, ip);
         success = TRUE;
     } else {
-        ui_log(app, "Failed to send IP to TX: %s", curl_easy_strerror(res));
+        ui_log(app, "Failed to send IP to TX %s: %s", url, curl_easy_strerror(res));
     }
 
     if (response.data) free(response.data);
