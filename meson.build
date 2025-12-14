@@ -28,6 +28,8 @@ sources = [
   'src/ui_configuration.c',
   'src/ui_log.c',
   'src/ui_rotate.c',
+  'src/ui_wifi.c',
+  'src/wifi_info.c',
   'src/serial_probe.c',
   'src/stream.c'
 ]
@@ -47,6 +49,7 @@ if host_machine.system() == 'windows'
       threads_dep
     ],
     win_subsystem : 'windows',
+    link_args : [ '-lwlanapi', '-liphlpapi' ],
     install : true
   )
 else

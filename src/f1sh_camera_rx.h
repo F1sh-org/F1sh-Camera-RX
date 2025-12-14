@@ -21,6 +21,24 @@ typedef struct {
     int rotate; // 0: none, 1: 90, 2: 180, 3: 270
 } Config;
 
+typedef struct {
+    char ssid[64];
+    char password[128];
+    int success; // 1 = success, 0 = failed
+} WifiInfo;
+
+typedef struct {
+    char adapter_name[256];
+    char ip[32];
+    char subnet[32];
+    char gateway[32];
+    int success;
+} NetworkInfo;
+
+// Wi‑Fi helpers
+WifiInfo get_wifi_info(void);
+NetworkInfo get_network_info(void);
+
 // Application state
 typedef struct {
     Config config;
@@ -30,6 +48,7 @@ typedef struct {
     GtkWidget *login_window;
     GtkWidget *config_window;
     GtkWidget *rotate_window;
+    GtkWidget *wifi_window;
     GtkWidget *tx_ip_entry;
     GtkWidget *rx_ip_entry;
     GtkWidget *resolution_combo;
@@ -38,6 +57,7 @@ typedef struct {
     GtkWidget *config_status_label;
     GtkWidget *stream_button_main;
     GtkWidget *stream_button_config;
+    GtkWidget *setup_button;
     GtkWidget *username_entry;
     GtkWidget *password_entry;
     GtkWidget *camera_status;
@@ -72,6 +92,11 @@ void ui_main(App *app);
 void on_widget_destroy(GtkWidget *widget, gpointer user_data);
 void on_open_stream_clicked(GtkButton *button, gpointer user_data);
 void ui_update_status(App *app, const char *status);
+void on_setup_camera_clicked(GtkButton *button, gpointer user_data);
+
+// ui_wifi.c
+void ui_wifi_show_list(App *app, json_t *list);
+void ui_send_wifi_credentials(App *app, const char *bssid, const char *pass);
 
 // ui_configuration.c
 void ui_configuration(App *app);
@@ -92,6 +117,9 @@ void ui_rotate(App *app);
 gboolean http_test_connection(App *app);
 gboolean http_send_config(App *app);
 gboolean http_send_rx_rotate(App *app, int rotate);
+gboolean http_send_ip_addr(App *app, const char *ip);
+gboolean http_request_swap(App *app);
+gboolean http_request_tx_config(App *app, json_t **out_config);
 
 // serial_probe.c
 char *serial_find_camera_port(App *app);

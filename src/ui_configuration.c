@@ -124,6 +124,14 @@ void on_open_stream_clicked(GtkButton *button __attribute__((unused)), gpointer 
         ui_update_status(app, "Stream stopped");
         return;
     }
+    
+    // If rotate requires swapping on TX server, try that first (log failure but proceed)
+    if (app->config.rotate == 1 || app->config.rotate == 3) {
+        if (!http_request_swap(app)) {
+            ui_log(app, "Unable to configure camera's rotation");
+        }
+    }
+
     // Start streaming (assumes config was already sent)
     if (stream_start(app)) {
         app->connected = TRUE;
@@ -265,13 +273,16 @@ void ui_configuration(App *app) {
     g_signal_connect(connect_btn, "clicked", G_CALLBACK(on_connect_clicked), app);
     gtk_box_pack_start(GTK_BOX(config_button_box), connect_btn, FALSE, FALSE, 0);
     
-    GtkWidget *stream_btn = gtk_button_new_with_label("Open Stream");
-    app->stream_button_config = stream_btn;
+    app->stream_button_config = gtk_button_new_with_label("Open Stream");
     if (app->streaming) {
-        gtk_button_set_label(GTK_BUTTON(stream_btn), "Stop Stream");
+        gtk_button_set_label(GTK_BUTTON(app->stream_button_config), "Stop Stream");
     }
-    g_signal_connect(stream_btn, "clicked", G_CALLBACK(on_open_stream_clicked), app);
-    gtk_box_pack_start(GTK_BOX(config_button_box), stream_btn, FALSE, FALSE, 0);
+    g_signal_connect(app->stream_button_config, "clicked", G_CALLBACK(on_open_stream_clicked), app);
+    gtk_box_pack_start(GTK_BOX(config_button_box), app->stream_button_config, FALSE, FALSE, 0);
+    // Disable stream button if wireless camera is not connected (based on main status label text)
+    const char *status_text = app->camera_status ? gtk_label_get_text(GTK_LABEL(app->camera_status)) : NULL;
+    gboolean wireless_ok = status_text && strstr(status_text, "Connected to camera wirelessly") != NULL;
+    gtk_widget_set_sensitive(app->stream_button_config, wireless_ok);
     
     // Status label
     app->config_status_label = gtk_label_new("Ready");

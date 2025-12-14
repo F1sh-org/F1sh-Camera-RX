@@ -19,14 +19,13 @@
 #endif
 #endif
 
-// Probe string and match substring
-static const char *kProbe = "{\"status\":1}\n";
 static const char *kMatch = "{\"status\":1}\n";
 
 #if defined(_WIN32) || defined(__CYGWIN__)
 
 static gboolean probe_windows_port(App *app, const char *name, char *out_read, size_t out_len)
 {
+    (void)app; // unused
     char path[32];
     if (strncmp(name, "COM", 3) == 0) {
         int n = atoi(name + 3);
@@ -62,7 +61,7 @@ static gboolean probe_windows_port(App *app, const char *name, char *out_read, s
     SetCommTimeouts(h, &timeouts);
 
     DWORD written = 0;
-    WriteFile(h, kProbe, (DWORD)strlen(kProbe), &written, NULL);
+    WriteFile(h, kMatch, (DWORD)strlen(kMatch), &written, NULL);
 
     DWORD read = 0;
     BOOL ok = ReadFile(h, out_read, (DWORD)(out_len - 1), &read, NULL);
@@ -104,7 +103,7 @@ static gboolean probe_posix_port(App *app, const char *path, char *out_read, siz
 
     tcflush(fd, TCIOFLUSH);
 
-    ssize_t w = write(fd, kProbe, strlen(kProbe));
+    ssize_t w = write(fd, kMatch, strlen(kMatch));
     (void)w;
 
     // Wait up to 500ms for response
