@@ -6,9 +6,13 @@
 #include <gst/video/videooverlay.h>
 #include <curl/curl.h>
 #include <jansson.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+// Set to 1 to force stream buttons enabled regardless of connection checks
+#ifndef FORCE_STREAM_BUTTON_ENABLED
+#define FORCE_STREAM_BUTTON_ENABLED 0
+#endif
 
 // Application configuration
 typedef struct {
@@ -22,19 +26,53 @@ typedef struct {
     int rotate; // 0: none, 1: 90, 2: 180, 3: 270
 } Config;
 
+typedef struct {
+    char ssid[64];
+    char password[128];
+    int success; // 1 = success, 0 = failed
+} WifiInfo;
+
+typedef struct {
+    char adapter_name[256];
+    char ip[32];
+    char subnet[32];
+    char gateway[32];
+    int success;
+} NetworkInfo;
+
+// Wi‑Fi helpers
+WifiInfo get_wifi_info(void);
+NetworkInfo get_network_info(void);
+
 // Application state
 typedef struct {
     Config config;
     
     // GTK widgets
     GtkWidget *window;
+    GtkWidget *login_window;
+    GtkWidget *config_window;
+    GtkWidget *rotate_window;
+    GtkWidget *wifi_window;
     GtkWidget *tx_ip_entry;
     GtkWidget *rx_ip_entry;
     GtkWidget *resolution_combo;
     GtkWidget *framerate_combo;
     GtkWidget *rotate_spin;
-    GtkWidget *status_label;
-    GtkWidget *stream_button;
+    GtkWidget *config_status_label;
+    GtkWidget *stream_button_main;
+    GtkWidget *setup_button;
+    GtkWidget *username_entry;
+    GtkWidget *password_entry;
+    GtkWidget *camera_status;
+    GtkWidget *serial_status_label;
+    GtkWidget *log_view;
+    GtkWidget *log_interactive_switch;
+    gboolean log_interactive;
+    guint log_event_press_handler_id;
+    guint log_event_release_handler_id;
+    guint log_event_enter_handler_id;
+    guint log_event_leave_handler_id;
     
     // GStreamer
     GstElement *pipeline;
@@ -53,14 +91,42 @@ typedef struct {
 void app_init(App *app);
 void app_cleanup(App *app);
 
-// ui.c
-void ui_create(App *app);
+// ui_main.c
+void ui_main(App *app);
+void on_widget_destroy(GtkWidget *widget, gpointer user_data);
+void on_open_stream_clicked(GtkButton *button, gpointer user_data);
 void ui_update_status(App *app, const char *status);
+void on_setup_camera_clicked(GtkButton *button, gpointer user_data);
+
+// ui_wifi.c
+void ui_wifi_show_list(App *app, json_t *list);
+void ui_send_wifi_credentials(App *app, const char *bssid, const char *pass);
+
+// ui_configuration.c
+void ui_configuration(App *app);
+void ui_set_log_interactive(App *app, gboolean interactive);
+
+// ui_login.c
+void ui_login(App *app);
+
+// ui_log.c
+void ui_log(App *app, const char *format, ...);
+void ui_log_flush_buffer(App *app);
+void ui_log_discard_buffer(void);
+
+// ui_rotate.c
+void ui_rotate(App *app);
 
 // http_client.c
 gboolean http_test_connection(App *app);
 gboolean http_send_config(App *app);
 gboolean http_send_rx_rotate(App *app, int rotate);
+gboolean http_request_swap(App *app);
+gboolean http_request_noswap(App *app);
+
+// serial_probe.c
+char *serial_find_camera_port(App *app);
+char *serial_send_receive(App *app, const char *port, const char *cmd, int timeout_ms);
 
 // stream.c
 gboolean stream_start(App *app);
