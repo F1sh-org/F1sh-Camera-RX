@@ -25,20 +25,7 @@ int ENABLE_LOG = 1; // Set to 0 to disable all logs
 #define LOG(fmt, ...) do { if (ENABLE_LOG) printf(fmt, ##__VA_ARGS__); } while (0)
 // ==========================================================
 
-// =================== STRUCT DEFINITIONS ===================
-typedef struct {
-    char ssid[64];
-    char password[128];
-    int success; // 1 = success, 0 = failed
-} WifiInfo;
-
-typedef struct {
-    char adapter_name[256];
-    char ip[32];
-    char subnet[32];
-    char gateway[32];
-    int success;
-} NetworkInfo;
+// Types are declared in f1sh_camera_rx.h
 // ==========================================================
 
 /**
@@ -48,7 +35,7 @@ typedef struct {
  * Inputs      : None
  * Returns     : WifiInfo struct containing SSID, password, and success flag
  */
-WifiInfo get_wifi_info() {
+WifiInfo get_wifi_info(void) {
     WifiInfo info = { .success = 0 };
     DWORD dwMaxClient = 2, dwCurVersion = 0;
     HANDLE hClient = NULL;
@@ -121,7 +108,7 @@ WifiInfo get_wifi_info() {
     return info;
 }
 
-NetworkInfo get_network_info() {
+NetworkInfo get_network_info(void) {
     NetworkInfo net = { .success = 0 };
 
     IP_ADAPTER_INFO *adapterInfo = NULL;
