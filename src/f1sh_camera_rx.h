@@ -9,6 +9,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Set to 1 to force stream buttons enabled regardless of connection checks
+#ifndef FORCE_STREAM_BUTTON_ENABLED
+#define FORCE_STREAM_BUTTON_ENABLED 0
+#endif
+
 // Application configuration
 typedef struct {
     char *tx_server_ip;
@@ -56,7 +61,6 @@ typedef struct {
     GtkWidget *rotate_spin;
     GtkWidget *config_status_label;
     GtkWidget *stream_button_main;
-    GtkWidget *stream_button_config;
     GtkWidget *setup_button;
     GtkWidget *username_entry;
     GtkWidget *password_entry;
@@ -117,12 +121,12 @@ void ui_rotate(App *app);
 gboolean http_test_connection(App *app);
 gboolean http_send_config(App *app);
 gboolean http_send_rx_rotate(App *app, int rotate);
-gboolean http_send_ip_addr(App *app, const char *ip);
 gboolean http_request_swap(App *app);
-gboolean http_request_tx_config(App *app, json_t **out_config);
+gboolean http_request_noswap(App *app);
 
 // serial_probe.c
 char *serial_find_camera_port(App *app);
+char *serial_send_receive(App *app, const char *port, const char *cmd, int timeout_ms);
 
 // stream.c
 gboolean stream_start(App *app);

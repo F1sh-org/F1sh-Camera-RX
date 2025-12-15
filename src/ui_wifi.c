@@ -85,6 +85,7 @@ static void on_wifi_selected(GtkButton *button, gpointer user_data) {
 
     g_signal_connect(dialog, "response", G_CALLBACK(on_password_dialog_response), d);
     gtk_widget_show_all(dialog);
+
 }
 
 static int compare_entries(const void *pa, const void *pb) {
@@ -104,7 +105,7 @@ void ui_wifi_show_list(App *app, json_t *list) {
         return;
     }
 
-    GPtrArray *arr = g_ptr_array_new_with_free_func(g_free);
+    GPtrArray *arr = g_ptr_array_new();
     for (i = 0; i < n; ++i) {
         json_t *obj = json_array_get(list, i);
         if (!json_is_object(obj)) continue;
@@ -144,7 +145,6 @@ void ui_wifi_show_list(App *app, json_t *list) {
 
     // Query local system for the currently connected SSID (Windows only)
     WifiInfo current = get_wifi_info();
-    NetworkInfo net = get_network_info();
 
     for (i = 0; i < arr->len; ++i) {
         WifiEntry *we = g_ptr_array_index(arr, i);
@@ -160,15 +160,6 @@ void ui_wifi_show_list(App *app, json_t *list) {
     }
 
     gtk_widget_show_all(app->wifi_window);
-
-    // If we have a valid local IP, send it to the TX server as status 23
-    if (net.success && net.ip[0] != '\0' && app->config.tx_server_ip) {
-        // Best-effort, log failures but do not block UI
-        ui_log(app, "Reporting local IP %s to TX", net.ip);
-        if (!http_send_ip_addr(app, net.ip)) {
-            ui_log(app, "Failed to send local IP to TX server: %s", net.ip);
-        }
-    }
 
     // Free entries when window is destroyed
     g_signal_connect(app->wifi_window, "destroy", G_CALLBACK(free_entries_on_destroy), arr);

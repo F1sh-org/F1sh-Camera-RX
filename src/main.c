@@ -210,7 +210,6 @@ int main(int argc, char *argv[]) {
     http_server_start(&app);
     
     ui_log(&app, "F1sh Camera RX started");
-    ui_log(&app, "Ready to connect to TX server");
     
     // Run main loop
     gtk_main();

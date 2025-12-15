@@ -182,57 +182,16 @@ gboolean http_send_rx_rotate(App *app, int rotate) {
     return success;
 }
 
-gboolean http_send_ip_addr(App *app, const char *ip) {
-    if (!app || !app->curl || !app->config.tx_server_ip || !ip) return FALSE;
-
-    char url[256];
-    snprintf(url, sizeof(url), "http://%s:%d/status", app->config.tx_server_ip, app->config.tx_http_port);
-
-    json_t *payload = json_object();
-    json_object_set_new(payload, "IPAddr", json_string(ip));
-
-    json_t *root = json_object();
-    json_object_set_new(root, "status", json_integer(23));
-    json_object_set_new(root, "payload", payload);
-    char *json_string = json_dumps(root, 0);
-    json_decref(root);
-    if (!json_string) return FALSE;
-
-    struct HttpResponse response = {0};
-    response.app = app;
-    struct curl_slist *headers = NULL;
-    headers = curl_slist_append(headers, "Content-Type: application/json");
-
-    curl_easy_reset(app->curl);
-    curl_easy_setopt(app->curl, CURLOPT_URL, url);
-    curl_easy_setopt(app->curl, CURLOPT_POSTFIELDS, json_string);
-    curl_easy_setopt(app->curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(app->curl, CURLOPT_WRITEFUNCTION, write_callback);
-    curl_easy_setopt(app->curl, CURLOPT_WRITEDATA, &response);
-    curl_easy_setopt(app->curl, CURLOPT_TIMEOUT, 5L);
-
-    CURLcode res = curl_easy_perform(app->curl);
-
-    curl_slist_free_all(headers);
-    free(json_string);
-
-    gboolean success = FALSE;
-    if (res == CURLE_OK) {
-        ui_log(app, "Sent IP to TX %s: %s", url, ip);
-        success = TRUE;
-    } else {
-        ui_log(app, "Failed to send IP to TX %s: %s", url, curl_easy_strerror(res));
-    }
-
-    if (response.data) free(response.data);
-    return success;
-}
-
 gboolean http_request_swap(App *app) {
-    if (!app || !app->curl || !app->config.tx_server_ip) return FALSE;
+    if (!app || !app->curl || !app->config.tx_server_ip) {
+        ui_log(app, "Swap request skipped: missing TX IP or curl");
+        return FALSE;
+    }
 
     char url[256];
     snprintf(url, sizeof(url), "http://%s:%d/swap", app->config.tx_server_ip, app->config.tx_http_port);
+
+    ui_log(app, "Requesting TX rotate swap at: %s", url);
 
     struct HttpResponse response = {0};
     response.app = app;
@@ -253,86 +212,49 @@ gboolean http_request_swap(App *app) {
     if (response.data) free(response.data);
 
     if (res == CURLE_OK && http_code == 200) {
+        ui_log(app, "TX rotate swap OK (HTTP %ld)", http_code);
         return TRUE;
     }
+
+    ui_log(app, "TX rotate swap failed: curl=%s http=%ld", curl_easy_strerror(res), http_code);
     return FALSE;
 }
 
-gboolean http_request_tx_config(App *app, json_t **out_config) {
-    if (!app || !app->curl || !app->config.tx_server_ip) return FALSE;
+gboolean http_request_noswap(App *app) {
+    if (!app || !app->curl || !app->config.tx_server_ip) {
+        ui_log(app, "No-swap request skipped: missing TX IP or curl");
+        return FALSE;
+    }
 
     char url[256];
-    snprintf(url, sizeof(url), "http://%s:%d/status",
-             app->config.tx_server_ip, app->config.tx_http_port);
+    snprintf(url, sizeof(url), "http://%s:%d/noswap", app->config.tx_server_ip, app->config.tx_http_port);
 
-    // Request JSON: {"status":5}
-    json_t *req = json_object();
-    json_object_set_new(req, "status", json_integer(5));
-    char *json_req = json_dumps(req, 0);
-    json_decref(req);
-    if (!json_req) return FALSE;
+    ui_log(app, "Requesting TX rotate noswap at: %s", url);
 
     struct HttpResponse response = {0};
     response.app = app;
-    struct curl_slist *headers = NULL;
-    headers = curl_slist_append(headers, "Content-Type: application/json");
 
     curl_easy_reset(app->curl);
     curl_easy_setopt(app->curl, CURLOPT_URL, url);
-    curl_easy_setopt(app->curl, CURLOPT_POSTFIELDS, json_req);
-    curl_easy_setopt(app->curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(app->curl, CURLOPT_WRITEFUNCTION, write_callback);
     curl_easy_setopt(app->curl, CURLOPT_WRITEDATA, &response);
     curl_easy_setopt(app->curl, CURLOPT_TIMEOUT, 5L);
 
     CURLcode res = curl_easy_perform(app->curl);
-
-    curl_slist_free_all(headers);
-    free(json_req);
-
-    gboolean success = FALSE;
-    if (res == CURLE_OK && response.data) {
-        ui_log(app, "TX config response: %s", response.data);
-        json_error_t err;
-        json_t *root = json_loads(response.data, 0, &err);
-        if (root) {
-            json_t *status = json_object_get(root, "status");
-            if (json_is_integer(status) && json_integer_value(status) == 5) {
-                // Optionally update app config from returned fields
-                json_t *host = json_object_get(root, "host");
-                json_t *port = json_object_get(root, "port");
-                json_t *width = json_object_get(root, "width");
-                json_t *height = json_object_get(root, "height");
-                json_t *fr = json_object_get(root, "framerate");
-
-                if (json_is_string(host)) {
-                    const char *h = json_string_value(host);
-                    if (h) {
-                        if (app->config.tx_server_ip) g_free(app->config.tx_server_ip);
-                        app->config.tx_server_ip = g_strdup(h);
-                    }
-                }
-                if (json_is_integer(port)) app->config.tx_http_port = (int)json_integer_value(port);
-                if (json_is_integer(width)) app->config.width = (int)json_integer_value(width);
-                if (json_is_integer(height)) app->config.height = (int)json_integer_value(height);
-                if (json_is_integer(fr)) app->config.framerate = (int)json_integer_value(fr);
-
-                if (out_config) {
-                    *out_config = root; // transfer ownership
-                } else {
-                    json_decref(root);
-                }
-                success = TRUE;
-            } else {
-                json_decref(root);
-            }
-        } else {
-            ui_log(app, "Failed to parse TX config JSON: %s", err.text);
-        }
-    } else {
-        ui_log(app, "TX config request failed: %s", curl_easy_strerror(res));
+    long http_code = 0;
+    if (res == CURLE_OK) {
+        curl_easy_getinfo(app->curl, CURLINFO_RESPONSE_CODE, &http_code);
     }
 
     if (response.data) free(response.data);
-    return success;
+
+    if (res == CURLE_OK && http_code == 200) {
+        ui_log(app, "TX rotate noswap OK (HTTP %ld)", http_code);
+        return TRUE;
+    }
+
+    ui_log(app, "TX rotate noswap failed: curl=%s http=%ld", curl_easy_strerror(res), http_code);
+    return FALSE;
 }
+
+// TX config retrieval is now handled via serial in ui_main.c; HTTP variant removed.

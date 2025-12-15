@@ -78,7 +78,7 @@ static void on_test_connection_clicked(GtkButton *button __attribute__((unused))
     }
 }
 
-static void on_connect_clicked(GtkButton *button __attribute__((unused)), gpointer user_data) {
+static void on_save_config_clicked(GtkButton *button __attribute__((unused)), gpointer user_data) {
     App *app = (App*)user_data;
     if (!app) return;
     if (app->config.tx_server_ip) {
@@ -91,6 +91,8 @@ static void on_connect_clicked(GtkButton *button __attribute__((unused)), gpoint
     apply_framerate_selection(app);
     if (app->config.rx_host_ip) { g_free(app->config.rx_host_ip); app->config.rx_host_ip = NULL; }
     app->config.rx_host_ip = g_strdup(gtk_entry_get_text(GTK_ENTRY(app->rx_ip_entry)));
+    // Use port 8888 for RX stream in saved configuration
+    app->config.rx_stream_port = 8888;
     // Test connection first
     if (!http_test_connection(app)) {
         ui_update_status(app, "Cannot connect to TX server");
@@ -106,7 +108,7 @@ static void on_connect_clicked(GtkButton *button __attribute__((unused)), gpoint
         ui_update_status(app, "Failed to set rotate on RX server");
         return;
     }
-    ui_update_status(app, "Configuration sent to TX server");
+    ui_update_status(app, "Configuration saved to TX server");
 }
 
 void on_open_stream_clicked(GtkButton *button __attribute__((unused)), gpointer user_data) {
@@ -120,15 +122,19 @@ void on_open_stream_clicked(GtkButton *button __attribute__((unused)), gpointer 
         stream_stop(app);
         app->connected = FALSE;
         if (app->stream_button_main) gtk_button_set_label(GTK_BUTTON(app->stream_button_main), "Open Stream");
-        if (app->stream_button_config) gtk_button_set_label(GTK_BUTTON(app->stream_button_config), "Open Stream");
+        // Stream controls removed from advanced configuration
         ui_update_status(app, "Stream stopped");
         return;
     }
     
-    // If rotate requires swapping on TX server, try that first (log failure but proceed)
-    if (app->config.rotate == 1 || app->config.rotate == 3) {
+    // Coordinate rotation with TX: 0/180 => /noswap, 90/270 => /swap
+    if (app->config.rotate == 0 || app->config.rotate == 2) {
+        if (!http_request_noswap(app)) {
+            ui_log(app, "Unable to configure camera's rotation (noswap)");
+        }
+    } else if (app->config.rotate == 1 || app->config.rotate == 3) {
         if (!http_request_swap(app)) {
-            ui_log(app, "Unable to configure camera's rotation");
+            ui_log(app, "Unable to configure camera's rotation (swap)");
         }
     }
 
@@ -136,7 +142,6 @@ void on_open_stream_clicked(GtkButton *button __attribute__((unused)), gpointer 
     if (stream_start(app)) {
         app->connected = TRUE;
         if (app->stream_button_main) gtk_button_set_label(GTK_BUTTON(app->stream_button_main), "Stop Stream");
-        if (app->stream_button_config) gtk_button_set_label(GTK_BUTTON(app->stream_button_config), "Stop Stream");
         ui_update_status(app, "Streaming");
     } else {
         ui_update_status(app, "Failed to start stream");
@@ -150,6 +155,119 @@ static void on_log_interactive_toggled(GtkSwitch *sw, GParamSpec *pspec, gpointe
     gboolean active = gtk_switch_get_active(GTK_SWITCH(sw));
     app->log_interactive = active;
     ui_set_log_interactive(app, active);
+}
+
+// Update visible widgets to reflect the current app->config values
+static void update_config_widgets(App *app) {
+    if (!app) return;
+    if (app->rx_ip_entry && app->config.rx_host_ip) {
+        gtk_entry_set_text(GTK_ENTRY(app->rx_ip_entry), app->config.rx_host_ip);
+    }
+    // Resolution combo
+    if (app->resolution_combo) {
+        gint resolution_index = 0;
+        for (guint i = 0; i < G_N_ELEMENTS(kResolutionPresets); ++i) {
+            if (app->config.width == kResolutionPresets[i].width && app->config.height == kResolutionPresets[i].height) {
+                resolution_index = (gint)i;
+                break;
+            }
+        }
+        gtk_combo_box_set_active(GTK_COMBO_BOX(app->resolution_combo), resolution_index);
+        apply_resolution_selection(app);
+    }
+    // Framerate combo
+    if (app->framerate_combo) {
+        gint framerate_index = 0;
+        for (guint i = 0; i < G_N_ELEMENTS(kFrameratePresets); ++i) {
+            if (app->config.framerate == kFrameratePresets[i]) {
+                framerate_index = (gint)i;
+                break;
+            }
+        }
+        gtk_combo_box_set_active(GTK_COMBO_BOX(app->framerate_combo), framerate_index);
+        apply_framerate_selection(app);
+    }
+    // Rotate spin
+    if (app->rotate_spin) {
+        gtk_spin_button_set_value(GTK_SPIN_BUTTON(app->rotate_spin), app->config.rotate);
+    }
+}
+
+// If a COM port is connected, fetch TX config over serial (status 5) and update local config/UI
+static void refresh_tx_config_from_serial(App *app) {
+    if (!app || !app->serial_status_label) return;
+    const char *txt = gtk_label_get_text(GTK_LABEL(app->serial_status_label));
+    if (!txt || !strstr(txt, "COM port:")) return;
+
+    // Extract port name from label
+    const char *p = strchr(txt, ':');
+    char portbuf[256] = {0};
+    if (p) {
+        while (*p == ':' || *p == ' ') p++;
+        strncpy(portbuf, p, sizeof(portbuf) - 1);
+    }
+    if (!portbuf[0]) return;
+
+    const char *cfg_cmd = "{\"status\":5}\n";
+    ui_log(app, "Requesting TX config via serial %s (advanced config open)", portbuf);
+    char *cfg_resp = serial_send_receive(app, portbuf, cfg_cmd, 4000);
+    if (!cfg_resp) {
+        ui_log(app, "No serial response when requesting TX config in advanced config window");
+        return;
+    }
+
+    ui_log(app, "TX config serial response: %s", cfg_resp);
+    json_error_t cerr;
+    json_t *cfg_root = json_loads(cfg_resp, 0, &cerr);
+    g_free(cfg_resp);
+    if (!cfg_root) {
+        ui_log(app, "Failed to parse TX config JSON from serial: %s", cerr.text);
+        return;
+    }
+
+    json_t *cfg_status = json_object_get(cfg_root, "status");
+    json_t *cfg_payload = json_object_get(cfg_root, "payload");
+    json_t *cfg_obj = NULL;
+    if (json_is_object(cfg_payload)) {
+        cfg_obj = cfg_payload;
+        json_incref(cfg_obj);
+    } else if (json_is_string(cfg_payload)) {
+        const char *payload_str = json_string_value(cfg_payload);
+        if (payload_str) {
+            json_error_t perr;
+            json_t *parsed = json_loads(payload_str, 0, &perr);
+            if (parsed && json_is_object(parsed)) {
+                cfg_obj = parsed; // owns ref
+            } else if (parsed) {
+                json_decref(parsed);
+            }
+        }
+    }
+
+    if (json_is_integer(cfg_status) && json_integer_value(cfg_status) == 5 && cfg_obj) {
+        json_t *host = json_object_get(cfg_obj, "host");
+        json_t *port = json_object_get(cfg_obj, "port");
+        json_t *width = json_object_get(cfg_obj, "width");
+        json_t *height = json_object_get(cfg_obj, "height");
+        json_t *fr = json_object_get(cfg_obj, "framerate");
+
+        if (json_is_string(host)) {
+            const char *h = json_string_value(host);
+            if (h) {
+                if (app->config.rx_host_ip) g_free(app->config.rx_host_ip);
+                app->config.rx_host_ip = g_strdup(h);
+            }
+        }
+        if (json_is_integer(port)) app->config.rx_stream_port = (int)json_integer_value(port);
+        if (json_is_integer(width)) app->config.width = (int)json_integer_value(width);
+        if (json_is_integer(height)) app->config.height = (int)json_integer_value(height);
+        if (json_is_integer(fr)) app->config.framerate = (int)json_integer_value(fr);
+
+        update_config_widgets(app);
+    }
+
+    if (cfg_obj) json_decref(cfg_obj);
+    json_decref(cfg_root);
 }
 
 void ui_configuration(App *app) {
@@ -190,7 +308,7 @@ void ui_configuration(App *app) {
     gtk_grid_attach(GTK_GRID(config_grid), app->tx_ip_entry, 1, row, 1, 1);
 
     row++;
-    label = gtk_label_new("RX Host IP:");
+    label = gtk_label_new("RX Server IP:");
     gtk_widget_set_halign(label, GTK_ALIGN_END);
     gtk_grid_attach(GTK_GRID(config_grid), label, 0, row, 1, 1);
     app->rx_ip_entry = gtk_entry_new();
@@ -269,24 +387,16 @@ void ui_configuration(App *app) {
     g_signal_connect(test_btn, "clicked", G_CALLBACK(on_test_connection_clicked), app);
     gtk_box_pack_start(GTK_BOX(config_button_box), test_btn, FALSE, FALSE, 0);
     
-    GtkWidget *connect_btn = gtk_button_new_with_label("Connect");
-    g_signal_connect(connect_btn, "clicked", G_CALLBACK(on_connect_clicked), app);
+    GtkWidget *connect_btn = gtk_button_new_with_label("Save config");
+    g_signal_connect(connect_btn, "clicked", G_CALLBACK(on_save_config_clicked), app);
     gtk_box_pack_start(GTK_BOX(config_button_box), connect_btn, FALSE, FALSE, 0);
-    
-    app->stream_button_config = gtk_button_new_with_label("Open Stream");
-    if (app->streaming) {
-        gtk_button_set_label(GTK_BUTTON(app->stream_button_config), "Stop Stream");
-    }
-    g_signal_connect(app->stream_button_config, "clicked", G_CALLBACK(on_open_stream_clicked), app);
-    gtk_box_pack_start(GTK_BOX(config_button_box), app->stream_button_config, FALSE, FALSE, 0);
-    // Disable stream button if wireless camera is not connected (based on main status label text)
-    const char *status_text = app->camera_status ? gtk_label_get_text(GTK_LABEL(app->camera_status)) : NULL;
-    gboolean wireless_ok = status_text && strstr(status_text, "Connected to camera wirelessly") != NULL;
-    gtk_widget_set_sensitive(app->stream_button_config, wireless_ok);
     
     // Status label
     app->config_status_label = gtk_label_new("Ready");
     gtk_box_pack_start(GTK_BOX(main_box), app->config_status_label, FALSE, FALSE, 0);
-    
+
+    // If a camera is still connected over serial, pull TX config now
+    refresh_tx_config_from_serial(app);
+
     gtk_widget_show_all(app->config_window);
 }
