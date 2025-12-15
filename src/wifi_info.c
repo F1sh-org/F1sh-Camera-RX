@@ -19,9 +19,35 @@
 #include <stdlib.h>
 #include <string.h>
 
-int ENABLE_LOG = 1;
-#define LOG(fmt, ...) do { if (ENABLE_LOG) printf(fmt, ##__VA_ARGS__); } while (0)
+// =================== GLOBAL LOG CONTROL ===================
+int ENABLE_LOG = 1; // Set to 0 to disable all logs
 
+#define LOG(fmt, ...) do { if (ENABLE_LOG) printf(fmt, ##__VA_ARGS__); } while (0)
+// ==========================================================
+
+// =================== STRUCT DEFINITIONS ===================
+typedef struct {
+    char ssid[64];
+    char password[128];
+    int success; // 1 = success, 0 = failed
+} WifiInfo;
+
+typedef struct {
+    char adapter_name[256];
+    char ip[32];
+    char subnet[32];
+    char gateway[32];
+    int success;
+} NetworkInfo;
+// ==========================================================
+
+/**
+ * get_wifi_info()
+ * ----------------
+ * Description : Retrieves current connected Wi-Fi SSID and password.
+ * Inputs      : None
+ * Returns     : WifiInfo struct containing SSID, password, and success flag
+ */
 WifiInfo get_wifi_info() {
     WifiInfo info = { .success = 0 };
     DWORD dwMaxClient = 2, dwCurVersion = 0;
