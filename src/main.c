@@ -141,6 +141,12 @@ void app_init(App *app) {
     app->config.height = 720;
     app->config.framerate = 30;
     app->config.rotate = 0;
+    app->log_interactive = FALSE;
+    app->log_event_press_handler_id = 0;
+    app->log_event_release_handler_id = 0;
+    app->log_event_enter_handler_id = 0;
+    app->log_event_leave_handler_id = 0;
+    app->log_interactive_switch = NULL;
     
     // Initialize state
     app->connected = FALSE;
@@ -151,15 +157,17 @@ void app_init(App *app) {
     // Initialize cURL
     app->curl = curl_easy_init();
     if (!app->curl) {
-        printf("Failed to initialize cURL\n");
+        ui_log(app, "Failed to initialize cURL");
         exit(1);
     }
     
-    printf("Application initialized\n");
+    ui_log(app, "Application initialized");
 }
 
 void app_cleanup(App *app) {
-    printf("Cleaning up application\n");
+    ui_log(app, "Cleaning up application");
+    // Ensure any buffered logs are discarded (or flushed if desired)
+    ui_log_discard_buffer();
     
     // Stop streaming
     stream_stop(app);
@@ -196,13 +204,12 @@ int main(int argc, char *argv[]) {
     app_init(&app);
     
     // Create UI
-    ui_create(&app);
+    ui_main(&app);
 
     // Start local HTTP server (port 8889)
     http_server_start(&app);
     
-    printf("F1sh Camera RX started\n");
-    printf("Ready to connect to TX server\n");
+    ui_log(&app, "F1sh Camera RX started");
     
     // Run main loop
     gtk_main();

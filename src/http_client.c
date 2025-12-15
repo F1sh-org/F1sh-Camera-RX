@@ -4,6 +4,7 @@
 struct HttpResponse {
     char *data;
     size_t size;
+    App *app; // reference to app for logging in callbacks
 };
 
 // Callback to write HTTP response data
@@ -12,7 +13,7 @@ static size_t write_callback(void *contents, size_t size, size_t nmemb, struct H
     char *ptr = realloc(response->data, response->size + total_size + 1);
     
     if (!ptr) {
-        printf("Failed to allocate memory for HTTP response\n");
+        ui_log(response ? response->app : NULL, "Failed to allocate memory for HTTP response");
         return 0;
     }
     
@@ -26,7 +27,7 @@ static size_t write_callback(void *contents, size_t size, size_t nmemb, struct H
 
 gboolean http_test_connection(App *app) {
     if (!app->curl || !app->config.tx_server_ip) {
-        printf("HTTP client not initialized or no server IP\n");
+        ui_log(app, "HTTP client not initialized or no server IP");
         return FALSE;
     }
     
@@ -34,9 +35,10 @@ gboolean http_test_connection(App *app) {
     snprintf(url, sizeof(url), "http://%s:%d/health", 
              app->config.tx_server_ip, app->config.tx_http_port);
     
-    printf("Testing connection to: %s\n", url);
+    ui_log(app, "Testing connection to: %s", url);
     
     struct HttpResponse response = {0};
+    response.app = app;
     
     // Reset curl handle to clean state
     curl_easy_reset(app->curl);
@@ -50,7 +52,7 @@ gboolean http_test_connection(App *app) {
     
     gboolean success = FALSE;
     if (res == CURLE_OK && response.data) {
-        printf("Response: %s\n", response.data);
+        ui_log(app, "Response: %s", response.data);
         
         // Parse JSON response
         json_error_t error;
@@ -66,7 +68,7 @@ gboolean http_test_connection(App *app) {
             json_decref(root);
         }
     } else {
-        printf("HTTP request failed: %s\n", curl_easy_strerror(res));
+        ui_log(app, "HTTP request failed: %s", curl_easy_strerror(res));
     }
     
     if (response.data) {
@@ -97,14 +99,15 @@ gboolean http_send_config(App *app) {
     json_decref(config);
     
     if (!json_string) {
-        printf("Failed to create JSON config\n");
+        ui_log(app, "Failed to create JSON config");
         return FALSE;
     }
     
-    printf("Sending config to: %s\n", url);
-    printf("Config: %s\n", json_string);
+    ui_log(app, "Sending config to: %s", url);
+    ui_log(app, "Config: %s", json_string);
     
     struct HttpResponse response = {0};
+    response.app = app;
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, "Content-Type: application/json");
     
@@ -125,10 +128,10 @@ gboolean http_send_config(App *app) {
     
     gboolean success = FALSE;
     if (res == CURLE_OK && response.data) {
-        printf("Config response: %s\n", response.data);
+        ui_log(app, "Config response: %s", response.data);
         success = TRUE; // Assume success if we got any response
     } else {
-        printf("Config request failed: %s\n", curl_easy_strerror(res));
+        ui_log(app, "Config request failed: %s", curl_easy_strerror(res));
     }
     
     if (response.data) {
@@ -151,6 +154,7 @@ gboolean http_send_rx_rotate(App *app, int rotate) {
     if (!json_string) return FALSE;
 
     struct HttpResponse response = {0};
+    response.app = app;
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, "Content-Type: application/json");
 
@@ -171,9 +175,86 @@ gboolean http_send_rx_rotate(App *app, int rotate) {
     if (res == CURLE_OK) {
         success = TRUE;
     } else {
-        printf("Rotate POST failed: %s\n", curl_easy_strerror(res));
+        ui_log(app, "Rotate POST failed: %s", curl_easy_strerror(res));
     }
 
     if (response.data) free(response.data);
     return success;
 }
+
+gboolean http_request_swap(App *app) {
+    if (!app || !app->curl || !app->config.tx_server_ip) {
+        ui_log(app, "Swap request skipped: missing TX IP or curl");
+        return FALSE;
+    }
+
+    char url[256];
+    snprintf(url, sizeof(url), "http://%s:%d/swap", app->config.tx_server_ip, app->config.tx_http_port);
+
+    ui_log(app, "Requesting TX rotate swap at: %s", url);
+
+    struct HttpResponse response = {0};
+    response.app = app;
+
+    // Reset curl handle to clean state
+    curl_easy_reset(app->curl);
+    curl_easy_setopt(app->curl, CURLOPT_URL, url);
+    curl_easy_setopt(app->curl, CURLOPT_WRITEFUNCTION, write_callback);
+    curl_easy_setopt(app->curl, CURLOPT_WRITEDATA, &response);
+    curl_easy_setopt(app->curl, CURLOPT_TIMEOUT, 5L);
+
+    CURLcode res = curl_easy_perform(app->curl);
+    long http_code = 0;
+    if (res == CURLE_OK) {
+        curl_easy_getinfo(app->curl, CURLINFO_RESPONSE_CODE, &http_code);
+    }
+
+    if (response.data) free(response.data);
+
+    if (res == CURLE_OK && http_code == 200) {
+        ui_log(app, "TX rotate swap OK (HTTP %ld)", http_code);
+        return TRUE;
+    }
+
+    ui_log(app, "TX rotate swap failed: curl=%s http=%ld", curl_easy_strerror(res), http_code);
+    return FALSE;
+}
+
+gboolean http_request_noswap(App *app) {
+    if (!app || !app->curl || !app->config.tx_server_ip) {
+        ui_log(app, "No-swap request skipped: missing TX IP or curl");
+        return FALSE;
+    }
+
+    char url[256];
+    snprintf(url, sizeof(url), "http://%s:%d/noswap", app->config.tx_server_ip, app->config.tx_http_port);
+
+    ui_log(app, "Requesting TX rotate noswap at: %s", url);
+
+    struct HttpResponse response = {0};
+    response.app = app;
+
+    curl_easy_reset(app->curl);
+    curl_easy_setopt(app->curl, CURLOPT_URL, url);
+    curl_easy_setopt(app->curl, CURLOPT_WRITEFUNCTION, write_callback);
+    curl_easy_setopt(app->curl, CURLOPT_WRITEDATA, &response);
+    curl_easy_setopt(app->curl, CURLOPT_TIMEOUT, 5L);
+
+    CURLcode res = curl_easy_perform(app->curl);
+    long http_code = 0;
+    if (res == CURLE_OK) {
+        curl_easy_getinfo(app->curl, CURLINFO_RESPONSE_CODE, &http_code);
+    }
+
+    if (response.data) free(response.data);
+
+    if (res == CURLE_OK && http_code == 200) {
+        ui_log(app, "TX rotate noswap OK (HTTP %ld)", http_code);
+        return TRUE;
+    }
+
+    ui_log(app, "TX rotate noswap failed: curl=%s http=%ld", curl_easy_strerror(res), http_code);
+    return FALSE;
+}
+
+// TX config retrieval is now handled via serial in ui_main.c; HTTP variant removed.
