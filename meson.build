@@ -52,6 +52,17 @@ if host_machine.system() == 'windows'
     link_args : [ '-lwlanapi', '-liphlpapi' ],
     install : true
   )
+
+  # Install portable launcher script
+  install_data('run-portable.cmd', install_dir : '.')
+
+  # Post-install script for dependency bundling
+  python = find_program('python3', 'python', required : true)
+  meson.add_install_script(
+    python,
+    meson.project_source_root() / 'scripts' / 'windows' / 'meson-post-install.py',
+    meson.global_build_root() / '..' / get_option('prefix')
+  )
 else
   executable(
     'f1sh-camera-rx',

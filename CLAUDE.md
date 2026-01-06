@@ -247,22 +247,46 @@ meson compile -C builddir
 
 ## Packaging and Distribution
 
-### Windows Portable Bundle ([scripts/windows/package-msys2-portable.ps1](scripts/windows/package-msys2-portable.ps1))
-- Collects executable and all MSYS2 DLLs via ntldd
-- Bundles GTK assets (themes, icons, schemas)
-- Includes full GStreamer plugin set
-- Compiles schemas and loader caches
-- Creates self-contained `dist/F1sh-Camera-RX` folder
-- Launcher script: [run-portable.cmd](run-portable.cmd)
+### Windows (New Meson-Integrated Approach)
 
-### Windows Installer ([scripts/windows/build-installer.ps1](scripts/windows/build-installer.ps1))
-- Uses Inno Setup 6
-- Installs to Program Files
-- Creates Start Menu and desktop shortcuts
-- Registers uninstaller
-- Version extracted from meson build info
+**Recommended:** Use the Meson-based packaging system for significantly smaller bundles.
 
-See [docs/PACKAGING.md](docs/PACKAGING.md) for detailed instructions.
+#### Quick Start
+```powershell
+# Portable bundle (automatic dependency bundling)
+pwsh -File scripts\windows\build-portable-meson.ps1
+
+# Installer
+pwsh -File scripts\windows\build-installer-meson.ps1
+```
+
+#### How It Works
+1. **Meson integration** ([meson.build](meson.build)) - Includes `meson.add_install_script()` for Windows
+2. **Post-install script** ([scripts/windows/meson-post-install.py](scripts/windows/meson-post-install.py)) - Python script executed during `meson install`
+3. **Selective plugin bundling** - Only 12 required GStreamer plugins instead of 100+
+4. **Automatic dependency resolution** - Uses `ntldd.exe` to find required DLLs
+5. **Result:** 60-70% smaller bundle size (~60-80 MB vs ~200+ MB)
+
+#### Required GStreamer Plugins
+Based on [src/stream.c](src/stream.c) pipeline analysis:
+- `libgstcoreelements.dll` (queue)
+- `libgstudp.dll` (udpsrc)
+- `libgstrtp.dll` (rtph264depay)
+- `libgstvideoparsersbad.dll` (h264parse)
+- `libgstd3d11.dll` (d3d11h264dec, d3d11videosink)
+- `libgstvideoconvertscale.dll`, `libgstvideofilter.dll` (videoconvert, videoflip)
+- `libgstlibav.dll` (avdec_h264 fallback)
+- And 4 more for RTP/type detection
+
+See [docs/MESON-PACKAGING.md](docs/MESON-PACKAGING.md) for full documentation.
+
+### Windows (Legacy Approach - Deprecated)
+
+Old manual PowerShell scripts with full GStreamer plugin bundling:
+- [scripts/windows/package-msys2-portable.ps1](scripts/windows/package-msys2-portable.ps1) - Bundles all dependencies
+- [scripts/windows/build-installer.ps1](scripts/windows/build-installer.ps1) - Creates Inno Setup installer
+
+See [docs/PACKAGING.md](docs/PACKAGING.md) for legacy documentation.
 
 ## Default Configuration
 
