@@ -1,7 +1,6 @@
 [CmdletBinding()]
 param(
     [string]$BuildDir = (Join-Path $PSScriptRoot '..\..\builddir'),
-    [string]$MsysRoot = $env:MSYS2_ROOT,
     [string]$PortableOutput = (Join-Path $PSScriptRoot '..\..\dist\F1sh-Camera-RX'),
     [string]$InstallerOutput = (Join-Path $PSScriptRoot '..\..\dist\installer'),
     [string]$InnoSetup = $(if (Test-Path "${env:ProgramFiles(x86)}") { Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe' } else { Join-Path ${env:ProgramFiles} 'Inno Setup 6\ISCC.exe' }),
@@ -11,14 +10,17 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..')
-$portableScript = Join-Path $PSScriptRoot 'package-msys2-portable.ps1'
+$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..').Path
+$portableScript = Join-Path $PSScriptRoot 'build-portable-meson.ps1'
+
 if (-not (Test-Path $portableScript)) {
     throw "Missing helper script: $portableScript"
 }
 
-Write-Host '==> Creating portable bundle'
-& $portableScript -BuildDir $BuildDir -Destination $PortableOutput -MsysRoot $MsysRoot -SkipBuild:$SkipBuild
+# Build portable bundle using new Meson-based script
+Write-Host '==> Creating portable bundle (Meson-based)'
+& $portableScript -BuildDir $BuildDir -DestDir $PortableOutput -SkipBuild:$SkipBuild
+
 if ($LASTEXITCODE -ne 0) {
     throw 'Portable packaging failed.'
 }
@@ -35,6 +37,7 @@ if (-not (Test-Path $InnoSetup)) {
     throw "Inno Setup compiler not found at '$InnoSetup'. Install Inno Setup 6 or pass -InnoSetup."
 }
 
+# Get version from Meson
 $projectInfo = Join-Path $BuildDir 'meson-info\intro-projectinfo.json'
 if (-not (Test-Path $projectInfo)) {
     throw "Meson introspection file '$projectInfo' missing. Run 'meson setup' first."
@@ -56,9 +59,12 @@ $defines = @(
     "/DSourceDir=$PortableOutput",
     "/DOutputDir=$InstallerOutput"
 )
+
 & $InnoSetup @defines $installerScript
 if ($LASTEXITCODE -ne 0) {
     throw 'Inno Setup compilation failed.'
 }
 
-Write-Host "Installer created under $InstallerOutput"
+Write-Host ""
+Write-Host "==> Installer created successfully!"
+Write-Host "Location: $InstallerOutput\F1sh-Camera-RX-Setup-$appVersion.exe"
