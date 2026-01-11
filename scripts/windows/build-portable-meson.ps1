@@ -10,7 +10,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..').Path
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+$BuildDir = [System.IO.Path]::GetFullPath($BuildDir)
+$DestDir = [System.IO.Path]::GetFullPath($DestDir)
 
 if (-not $MsysRoot) {
     $MsysRoot = 'C:\msys64'
@@ -28,15 +30,36 @@ Write-Host "Output dir: $DestDir"
 Write-Host "MSYS2 root: $MsysRoot"
 Write-Host ""
 
-# Configure build if needed
-if (-not $SkipConfigure -and -not (Test-Path (Join-Path $BuildDir 'build.ninja'))) {
-    Write-Host "==> Configuring Meson build"
-    $nativeFile = Join-Path $repoRoot 'native-file.ini'
+$nativeFile = Join-Path $repoRoot 'native-file.ini'
 
-    & meson setup $BuildDir --native-file $nativeFile --prefix="$DestDir"
+function Invoke-MesonSetup {
+    Write-Host "==> Configuring Meson build"
+    & meson setup $BuildDir $repoRoot --native-file $nativeFile --prefix="$DestDir"
     if ($LASTEXITCODE -ne 0) {
         throw "Meson setup failed"
     }
+}
+
+# Configure build if needed or if existing prefix differs
+$needsConfig = -not (Test-Path (Join-Path $BuildDir 'build.ninja'))
+if (-not $needsConfig) {
+    $infoFile = Join-Path $BuildDir 'meson-info/intro-buildoptions.json'
+    if (Test-Path $infoFile) {
+        $options = Get-Content $infoFile | ConvertFrom-Json
+        $prefixOpt = $options | Where-Object { $_.name -eq 'prefix' }
+        if ($prefixOpt -and $prefixOpt.value -ne $DestDir) {
+            Write-Host "==> Prefix changed, reconfiguring"
+            $needsConfig = $true
+        }
+    }
+}
+
+if (-not $SkipConfigure -and $needsConfig) {
+    if (Test-Path $BuildDir) {
+        Write-Host "==> Removing stale build directory"
+        Remove-Item $BuildDir -Recurse -Force
+    }
+    Invoke-MesonSetup
 }
 
 # Build

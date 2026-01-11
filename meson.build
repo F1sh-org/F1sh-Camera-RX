@@ -53,8 +53,8 @@ if host_machine.system() == 'windows'
     install : true
   )
 
-  # Install portable launcher script
-  install_data('run-portable.cmd', install_dir : '.')
+  # Install portable launcher script into prefix root
+  install_data('run-portable.cmd', install_dir : get_option('prefix'))
 
   # Post-install script for dependency bundling
   python = find_program('python3', 'python', required : true)
