@@ -10,8 +10,11 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..').Path
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $portableScript = Join-Path $PSScriptRoot 'build-portable-meson.ps1'
+$BuildDir = [System.IO.Path]::GetFullPath($BuildDir)
+$PortableOutput = [System.IO.Path]::GetFullPath($PortableOutput)
+$InstallerOutput = [System.IO.Path]::GetFullPath($InstallerOutput)
 
 if (-not (Test-Path $portableScript)) {
     throw "Missing helper script: $portableScript"
