@@ -4,15 +4,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-F1sh Camera RX is an H.264 video stream receiver for the F1sh Camera system. The project is **currently transitioning from a GTK3/C codebase to Qt6/C++** (see commit 1110658). The codebase contains legacy C files (`serial_*.c`, `stream.c`, `wifi_info.c`) that reference a non-existent `f1sh_camera_rx.h` header - these are remnants from the old architecture and are not currently compiled.
+F1sh Camera RX is an H.264 video stream receiver for the F1sh Camera system. The project has **transitioned from a GTK3/C codebase to Qt6/C++** (commit 1110658). The codebase contains legacy C files (`serial_*.c`, `stream.c`, `wifi_info.c`) that reference a non-existent `f1sh_camera_rx.h` header - these are remnants from the old architecture and are not currently compiled.
 
-**Current state:** The active codebase is Qt6/C++17 with a minimal UI implementation in [src/mainwindow.cpp](src/mainwindow.cpp), [src/mainwindow.h](src/mainwindow.h), and [ui/mainwindow.ui](ui/mainwindow.ui).
+**Current state:** The active codebase is Qt6/C++17 with **two UI implementations**:
+
+1. **Qt Widgets UI** (minimal, currently built by Meson):
+   - [src/mainwindow.cpp](src/mainwindow.cpp), [src/mainwindow.h](src/mainwindow.h), [ui/mainwindow.ui](ui/mainwindow.ui)
+   - Simple window with basic controls
+   - Built via [meson.build](meson.build)
+
+2. **Qt Quick/QML UI** (new, comprehensive):
+   - Full project in [ui/UntitledProject/](ui/UntitledProject/)
+   - Created with Qt Design Studio 4.8 (Qt 6.8)
+   - Includes login screen ([Screen01.ui.qml](ui/UntitledProject/UntitledProjectContent/Screen01.ui.qml))
+   - Standalone QML application with CMake build system
+   - **Not yet integrated** with the main Meson build
 
 ## Build System
 
-This project uses **Meson** as its build system.
+This project uses **Meson** as its primary build system for the Qt Widgets application.
 
-### Building
+### Building the Qt Widgets Application
 
 ```bash
 # Configure build
@@ -25,16 +37,35 @@ meson compile -C builddir
 ./builddir/f1sh-camera-rx
 ```
 
+### Building the Qt Quick/QML Application
+
+The Qt Quick UI in [ui/UntitledProject/](ui/UntitledProject/) uses CMake:
+
+```bash
+cd ui/UntitledProject
+mkdir build && cd build
+cmake ..
+cmake --build .
+```
+
+**Note:** The QML UI is not yet integrated with the main Meson build system.
+
 ### Dependencies
 
+**Qt Widgets Application:**
 - Qt6 (Core, Gui, Widgets)
 - GStreamer 1.0 with plugins (base, good, bad)
 - jansson (JSON library)
 - Python 3 (for build scripts)
 
+**Qt Quick/QML Application:**
+- Qt6 (Core, Gui, Widgets, Quick, Qml)
+- Qt Design Studio Components (bundled in [ui/UntitledProject/Dependencies/](ui/UntitledProject/Dependencies/))
+
 On Windows/MSYS2 UCRT64:
 ```bash
 pacman -S mingw-w64-ucrt-x86_64-qt6-base \
+          mingw-w64-ucrt-x86_64-qt6-declarative \
           mingw-w64-ucrt-x86_64-gstreamer \
           mingw-w64-ucrt-x86_64-gst-plugins-base \
           mingw-w64-ucrt-x86_64-gst-plugins-good \
@@ -46,11 +77,19 @@ pacman -S mingw-w64-ucrt-x86_64-qt6-base \
 
 ## Architecture
 
-### Qt Integration
+### Qt Widgets Integration
 
-- **MOC Processing:** Qt's Meta-Object Compiler processes `src/mainwindow.h` automatically via `qt6.preprocess()` in [meson.build](meson.build)
-- **UI Files:** `ui/mainwindow.ui` is processed into `ui_mainwindow.h` at build time
+- **MOC Processing:** Qt's Meta-Object Compiler processes [src/mainwindow.h](src/mainwindow.h) automatically via `qt6.preprocess()` in [meson.build](meson.build)
+- **UI Files:** [ui/mainwindow.ui](ui/mainwindow.ui) is processed into `ui_mainwindow.h` at build time
 - **Signals/Slots:** Standard Qt signal-slot mechanism (see [src/mainwindow.cpp](src/mainwindow.cpp))
+
+### Qt Quick/QML Integration
+
+- **Main Entry Point:** [ui/UntitledProject/App/main.cpp](ui/UntitledProject/App/main.cpp)
+- **QML Engine:** Uses `QQmlApplicationEngine` to load QML components
+- **UI Definition:** [ui/UntitledProject/UntitledProjectContent/Screen01.ui.qml](ui/UntitledProject/UntitledProjectContent/Screen01.ui.qml) defines the main login screen
+- **Application Structure:** [ui/UntitledProject/UntitledProjectContent/App.qml](ui/UntitledProject/UntitledProjectContent/App.qml) is the root window
+- **Design Studio Components:** Custom QML components bundled in [Dependencies/Components/](ui/UntitledProject/Dependencies/Components/) for effects, flow views, and logic helpers
 
 ### Video Streaming Architecture (Legacy - To Be Reimplemented)
 
@@ -108,11 +147,20 @@ Based on video pipeline requirements (from legacy `stream.c`):
 
 ## Development Workflow
 
-### Adding Qt UI Components
+### Working with Qt Widgets UI
 
 1. Edit [ui/mainwindow.ui](ui/mainwindow.ui) in Qt Designer or manually
 2. Add signal/slot connections in [src/mainwindow.cpp](src/mainwindow.cpp)
 3. Meson automatically handles MOC and UI compilation
+
+### Working with Qt Quick/QML UI
+
+1. Open [ui/UntitledProject/UntitledProject.qmlproject](ui/UntitledProject/UntitledProject.qmlproject) in Qt Design Studio
+2. Edit UI files (`.ui.qml` files) in Design Studio's visual editor
+3. Modify logic files (`.qml` files) for behavior and state management
+4. Build using the CMake workflow (see Build System section)
+
+**Note:** The QML project is currently standalone. Integration with the main application and GStreamer pipeline is pending.
 
 ### Adding New Source Files
 
@@ -136,7 +184,7 @@ processed = qt6.preprocess(
 
 ## Important Notes
 
-- **Current branch:** `release/v2.0.0` (main branch for PRs: `main`)
+- **Current branch:** `huy/add_new_ui` (main branch for PRs: `main`)
 - **Version:** 2.0.0 (defined in [meson.build](meson.build))
 - **Platform-specific code:** Use Qt's cross-platform APIs instead of `#ifdef _WIN32` where possible
 - **Legacy C code:** Do not modify `.c` files in `src/` - they are not part of the current build
@@ -144,9 +192,11 @@ processed = qt6.preprocess(
 
 ## Git Workflow
 
-Recent commits show the transition:
+Recent commits show the progression:
+- `01f1c90` - Merged `release/v2.0.0` into `huy/add_new_ui`
+- `64686f7` - Added CLAUDE.md documentation
+- `480d50c` - Added new UI implementation
 - `1110658` - Major refactor from GTK/C to Qt/C++
 - `fad66f3` - Re-staged Meson build configuration for Qt
-- `dc1f691` - Fixed path registration issues
 
 When making commits, follow the existing style: use conventional commit prefixes (`feat:`, `fix:`, `refactor:`, `chore:`).
