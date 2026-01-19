@@ -56,4 +56,17 @@ On Windows, use MSYS2:
 
 ## Packaging
 
-See `docs/PACKAGING.md` for the automated Windows portable bundle and installer workflow built around MSYS2, GStreamer plugins, and Inno Setup.
+### Windows
+
+**New Meson-integrated approach (Recommended):**
+```powershell
+# Build portable bundle
+pwsh -File scripts\windows\build-portable-meson.ps1
+
+# Build installer
+pwsh -File scripts\windows\build-installer-meson.ps1
+```
+
+See [`docs/MESON-PACKAGING.md`](docs/MESON-PACKAGING.md) for the new Meson-integrated packaging system with selective GStreamer plugin bundling (60-70% smaller bundles).
+
+**Legacy approach:** See [`docs/PACKAGING.md`](docs/PACKAGING.md) for the old manual PowerShell scripts (deprecated).
