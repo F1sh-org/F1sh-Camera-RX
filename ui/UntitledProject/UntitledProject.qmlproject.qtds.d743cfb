@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE QtCreatorProject>
-<!-- Written by QtDesignStudio 4.8.1, 2026-01-24T15:33:53. -->
+<!-- Written by QtDesignStudio 4.8.1, 2026-01-15T22:48:16. -->
 <qtcreator>
  <data>
   <variable>EnvironmentId</variable>
-  <value type="QByteArray">{55cba5b3-467a-4a95-a9ca-cc6ad5e60e35}</value>
+  <value type="QByteArray">{d743cfb7-2619-4cf9-8a81-0b37e0c8cae4}</value>
  </data>
  <data>
   <variable>ProjectExplorer.Project.ActiveTarget</variable>
@@ -71,7 +71,7 @@
    <value type="qlonglong" key="ProjectExplorer.Target.ActiveDeployConfiguration">0</value>
    <value type="qlonglong" key="ProjectExplorer.Target.ActiveRunConfiguration">0</value>
    <valuemap type="QVariantMap" key="ProjectExplorer.Target.BuildConfiguration.0">
-    <value type="QString" key="ProjectExplorer.BuildConfiguration.BuildDirectory">D:\STEAM4VN\F1sh_RX\F1sh-Camera-RX\ui\UntitledProject\UntitledProject.qmlproject</value>
+    <value type="QString" key="ProjectExplorer.BuildConfiguration.BuildDirectory">D:\My company\S4V\Competition Project\F1sh-Camera-RX\ui\UntitledProject\UntitledProject.qmlproject</value>
     <valuemap type="QVariantMap" key="ProjectExplorer.BuildConfiguration.BuildStepList.0">
      <value type="qlonglong" key="ProjectExplorer.BuildStepList.StepsCount">0</value>
      <value type="QString" key="ProjectExplorer.ProjectConfiguration.DefaultDisplayName">Build</value>
