@@ -1,16 +1,20 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 // QtQuick.Studio.DesignEffects removed - not available in standard Qt6
 
 Item {
     id: root
     // Use parent size instead of fixed dimensions
     anchors.fill: parent
-    
+
     // Scale factor for responsive UI (design was for 1920x1080)
     readonly property real scaleX: width / 1920
     readonly property real scaleY: height / 1080
     readonly property real scaleFactor: Math.min(scaleX, scaleY)
+
+    // Selected network for connection
+    property var selectedNetwork: null
 
     // Start auto-detection when component loads
     Component.onCompleted: {
@@ -21,6 +25,92 @@ Item {
     Component.onDestruction: {
         if (typeof serialPortManager !== "undefined" && serialPortManager !== null) {
             serialPortManager.stopAutoDetect()
+        }
+    }
+
+    // WiFi Password Dialog
+    Dialog {
+        id: wifiPasswordDialog
+        title: selectedNetwork ? "Connect to " + selectedNetwork.ssid : "Connect to WiFi"
+        modal: true
+        anchors.centerIn: parent
+        width: 400
+        height: 250
+        standardButtons: Dialog.Ok | Dialog.Cancel
+
+        onAccepted: {
+            if (selectedNetwork && wifiManager) {
+                // Auto-detect RX IP instead of using saved value
+                var rxIp = configManager ? configManager.detectLocalIp() : "192.168.1.1"
+                console.log("Using RX IP:", rxIp)
+                wifiManager.connectToNetwork(selectedNetwork.bssid, passwordField.text, rxIp)
+                passwordField.text = ""
+            }
+        }
+
+        onRejected: {
+            passwordField.text = ""
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 20
+            spacing: 15
+
+            Label {
+                text: selectedNetwork ? "Network: " + selectedNetwork.ssid : ""
+                font.bold: true
+                font.pixelSize: 16
+            }
+
+            Label {
+                text: "Enter WiFi password:"
+                font.pixelSize: 14
+            }
+
+            TextField {
+                id: passwordField
+                Layout.fillWidth: true
+                placeholderText: "Password"
+                echoMode: TextInput.Password
+                font.pixelSize: 14
+            }
+
+            Label {
+                id: connectionStatus
+                text: {
+                    if (wifiManager && wifiManager.isConnecting) return "Connecting..."
+                    if (wifiManager && wifiManager.errorMessage) return wifiManager.errorMessage
+                    return ""
+                }
+                color: wifiManager && wifiManager.errorMessage ? "red" : "black"
+                font.pixelSize: 12
+                visible: text !== ""
+            }
+        }
+    }
+
+    // Connection success/failure handlers
+    Connections {
+        target: wifiManager
+        function onConnectionSucceeded(txIp) {
+            wifiPasswordDialog.close()
+            // Update configManager with TX IP and RX IP
+            if (configManager) {
+                configManager.txServerIp = txIp
+                // Also update RX IP with the detected local IP
+                var localIp = configManager.detectLocalIp()
+                configManager.rxHostIp = localIp
+                // Mark direction as saved to enable Connect Camera button
+                configManager.setDirectionSaved(true)
+                // Save settings
+                configManager.saveSettings()
+            }
+            console.log("WiFi connected! TX IP:", txIp)
+        }
+        function onConnectionFailed(error) {
+            // Dialog stays open, error is shown via connectionStatus label
+            console.log("WiFi connection failed:", error)
         }
     }
 
@@ -138,7 +228,8 @@ Item {
                                 
                                 onClicked: {
                                     console.log("Selected WiFi:", modelData.ssid)
-                                    // TODO: Handle WiFi selection/connection
+                                    root.selectedNetwork = modelData
+                                    wifiPasswordDialog.open()
                                 }
                             }
 
@@ -502,17 +593,24 @@ Item {
                 text: qsTr("Connect Camera")
                 font.pointSize: 18
                 font.bold: true
-                // Only enabled when direction has been saved (Save button pressed)
+                // Enabled when direction has been saved AND we have a TX IP (from WiFi connection)
                 enabled: configManager ? configManager.directionSaved && !configManager.isBusy : false
                 onClicked: {
-                    // Test HTTP connection to camera - same as "Test Connection" in Settings
+                    // If we have a valid TX IP from WiFi connection, test HTTP connection
+                    // Otherwise, just mark as connected since we're using serial
                     if (configManager) {
-                        configManager.testConnection()
-                        if (logManager) logManager.log("Connect Camera: Testing connection to TX server...")
+                        if (configManager.txServerIp && configManager.txServerIp !== "192.168.4.1") {
+                            configManager.testConnection()
+                            if (logManager) logManager.log("Connect Camera: Testing connection to TX server...")
+                        } else {
+                            // No WiFi connection yet, but camera is connected via serial
+                            // This shouldn't happen if workflow is followed correctly
+                            if (logManager) logManager.log("Connect Camera: No TX server IP. Please connect to WiFi first.")
+                        }
                     }
                 }
             }
-            
+
             Button {
                 id: openStreamButton
                 width: 220
@@ -520,8 +618,15 @@ Item {
                 text: qsTr("Open Stream")
                 font.pointSize: 18
                 font.bold: true
-                // Only enabled when camera is connected (testConnection succeeded)
-                enabled: configManager ? configManager.cameraConnected && !configManager.isBusy : false
+                highlighted: true
+                // Enabled when we have a valid TX IP (from WiFi connection) and direction is saved
+                enabled: {
+                    if (!configManager) return false
+                    // Enable if camera connected via HTTP test, OR if we have a valid TX IP from WiFi
+                    var hasTxIp = configManager.txServerIp && configManager.txServerIp !== "192.168.4.1"
+                    var dirSaved = configManager.directionSaved
+                    return (configManager.cameraConnected || hasTxIp) && dirSaved && !configManager.isBusy
+                }
                 onClicked: {
                     // Open the camera display/stream view
                     mainWindow.openCameraDisplay()

@@ -10,6 +10,7 @@
 #include <QEventLoop>
 #include <QTimer>
 #include <QCoreApplication>
+#include <QNetworkInterface>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -212,47 +213,45 @@ void ConfigManager::saveConfig()
     if (m_isBusy) {
         return;
     }
-    
+
     setIsBusy(true);
-    setStatusMessage("Testing connection...");
     LogManager::log("Saving configuration...");
-    
-    // Test connection first
-    if (!httpTestConnection()) {
-        setStatusMessage("Cannot connect to TX server");
-        LogManager::log("Save config failed: Cannot connect to TX server");
-        setIsBusy(false);
-        return;
+    LogManager::log(QString("Config: %1x%2 @ %3fps, rotate=%4").arg(m_width).arg(m_height).arg(m_framerate).arg(m_rotate));
+
+    // If we have a serial port, send rotation via serial protocol (status 24)
+    if (!m_serialPort.isEmpty()) {
+        setStatusMessage("Sending rotation via serial...");
+        if (!sendRotateViaSerial()) {
+            LogManager::log("Warning: Failed to send rotation via serial");
+            // Continue anyway - save locally
+        }
     }
-    
-    setStatusMessage("Sending configuration...");
-    LogManager::log(QString("Sending config: %1x%2 @ %3fps, rotate=%4").arg(m_width).arg(m_height).arg(m_framerate).arg(m_rotate));
-    
-    // Send configuration to TX server
-    if (!httpSendConfig()) {
-        setStatusMessage("Failed to configure TX server");
-        LogManager::log("Failed to configure TX server");
-        setIsBusy(false);
-        return;
+
+    // If TX server IP is set and we're connected to WiFi, try HTTP config
+    if (!m_txServerIp.isEmpty() && m_txServerIp != "192.168.4.1") {
+        setStatusMessage("Testing connection...");
+        if (httpTestConnection()) {
+            setStatusMessage("Sending configuration...");
+            if (httpSendConfig()) {
+                LogManager::log("Configuration sent to TX server via HTTP");
+            } else {
+                LogManager::log("Warning: Failed to send config via HTTP");
+            }
+        } else {
+            LogManager::log("TX server not reachable via HTTP (this is OK if using serial)");
+        }
     }
-    
-    // Send rotate to local RX server
-    if (!httpSendRxRotate(m_rotate)) {
-        setStatusMessage("Failed to set rotate on RX server");
-        LogManager::log("Warning: Failed to set rotate on RX server");
-        // Don't return - continue anyway
-    }
-    
+
     // Save to local settings
     saveSettings();
-    
+
     // Mark direction as saved
     if (!m_directionSaved) {
         m_directionSaved = true;
         emit directionSavedChanged();
     }
-    
-    setStatusMessage("Configuration saved to TX server");
+
+    setStatusMessage("Configuration saved");
     LogManager::log("Configuration saved successfully");
     setIsBusy(false);
     emit configSaved();
@@ -617,4 +616,110 @@ void ConfigManager::fetchConfigFromSerial()
     }
     
     setStatusMessage("Config loaded from camera");
+}
+
+QString ConfigManager::detectLocalIp()
+{
+    // Get list of all network interfaces and find the best local IP
+    const QList<QNetworkInterface> interfaces = QNetworkInterface::allInterfaces();
+
+    for (const QNetworkInterface &iface : interfaces) {
+        // Skip loopback and down interfaces
+        if (iface.flags() & QNetworkInterface::IsLoopBack) {
+            continue;
+        }
+        if (!(iface.flags() & QNetworkInterface::IsUp)) {
+            continue;
+        }
+        if (!(iface.flags() & QNetworkInterface::IsRunning)) {
+            continue;
+        }
+
+        const QList<QNetworkAddressEntry> entries = iface.addressEntries();
+        for (const QNetworkAddressEntry &entry : entries) {
+            QHostAddress addr = entry.ip();
+
+            // Only IPv4
+            if (addr.protocol() != QAbstractSocket::IPv4Protocol) {
+                continue;
+            }
+
+            // Skip localhost
+            if (addr.isLoopback()) {
+                continue;
+            }
+
+            QString ipStr = addr.toString();
+
+            // Prefer 192.168.x.x addresses (common for home networks)
+            if (ipStr.startsWith("192.168.")) {
+                LogManager::log(QString("Detected local IP: %1 (interface: %2)").arg(ipStr, iface.humanReadableName()));
+                return ipStr;
+            }
+        }
+    }
+
+    // Second pass: accept any non-loopback IPv4
+    for (const QNetworkInterface &iface : interfaces) {
+        if (iface.flags() & QNetworkInterface::IsLoopBack) {
+            continue;
+        }
+        if (!(iface.flags() & QNetworkInterface::IsUp)) {
+            continue;
+        }
+
+        const QList<QNetworkAddressEntry> entries = iface.addressEntries();
+        for (const QNetworkAddressEntry &entry : entries) {
+            QHostAddress addr = entry.ip();
+
+            if (addr.protocol() != QAbstractSocket::IPv4Protocol) {
+                continue;
+            }
+
+            if (addr.isLoopback()) {
+                continue;
+            }
+
+            QString ipStr = addr.toString();
+            LogManager::log(QString("Detected local IP: %1 (interface: %2)").arg(ipStr, iface.humanReadableName()));
+            return ipStr;
+        }
+    }
+
+    LogManager::log("Could not detect local IP, using 127.0.0.1");
+    return "127.0.0.1";
+}
+
+void ConfigManager::setDirectionSaved(bool saved)
+{
+    if (m_directionSaved != saved) {
+        m_directionSaved = saved;
+        emit directionSavedChanged();
+    }
+}
+
+bool ConfigManager::sendRotateViaSerial()
+{
+    if (m_serialPort.isEmpty()) {
+        LogManager::log("Cannot send rotation: No serial port connected");
+        return false;
+    }
+
+    // Send status 24 with swap value
+    // swap = 1 if rotate is 1 or 3 (portrait mode), 0 otherwise
+    int swap = (m_rotate == 1 || m_rotate == 3) ? 1 : 0;
+
+    QString command = QString("{\"status\":24,\"payload\":{\"swap\":%1}}\n").arg(swap);
+    LogManager::log(QString("Sending rotation via serial (status 24, swap=%1)").arg(swap));
+
+    QByteArray response = sendSerialCommand(command);
+
+    if (response.isEmpty()) {
+        LogManager::log("No response to rotation command (this may be OK)");
+        // No response expected for status 24 according to protocol
+        return true;
+    }
+
+    LogManager::log(QString("Rotation command response: %1").arg(QString::fromUtf8(response).trimmed()));
+    return true;
 }

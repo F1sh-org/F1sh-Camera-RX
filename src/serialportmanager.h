@@ -48,6 +48,8 @@ public:
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void startAutoDetect();
     Q_INVOKABLE void stopAutoDetect();
+    Q_INVOKABLE void pauseAutoDetect();
+    Q_INVOKABLE void resumeAutoDetect();
 
 signals:
     void cameraConnectedChanged();
@@ -67,6 +69,7 @@ private:
     QThread *m_workerThread = nullptr;
     SerialPortWorker *m_worker = nullptr;
     bool m_detectionInProgress = false;
+    bool m_autoDetectPaused = false;
 };
 
 #endif // SERIALPORTMANAGER_H

@@ -1,13 +1,18 @@
-project('f1sh-camera-rx', 'cpp',
+project('f1sh-camera-rx', 'cpp', 'c',
   version: '2.0.0',
   default_options: ['cpp_std=c++17', 'warning_level=2'])
 
 qt6 = import('qt6')
 qt6_dep = dependency('qt6', modules: ['Core', 'Gui', 'Widgets', 'Qml', 'Quick', 'QuickControls2', 'Network'])
 
+# GStreamer dependencies
+gstreamer_dep = dependency('gstreamer-1.0', required: true)
+gst_video_dep = dependency('gstreamer-video-1.0', required: true)
+gst_app_dep = dependency('gstreamer-app-1.0', required: true)
+
 # Process Qt MOC files
 processed = qt6.preprocess(
-  moc_headers: ['src/serialportmanager.h', 'src/wifimanager.h', 'src/configmanager.h', 'src/logmanager.h'],
+  moc_headers: ['src/serialportmanager.h', 'src/wifimanager.h', 'src/configmanager.h', 'src/logmanager.h', 'src/streammanager.h'],
   dependencies: qt6_dep
 )
 
@@ -28,11 +33,12 @@ sources = [
   'src/wifimanager.cpp',
   'src/configmanager.cpp',
   'src/logmanager.cpp',
+  'src/streammanager.cpp',
 ]
 
 executable('f1sh-camera-rx',
   sources + processed + qml_resources,
-  dependencies: [qt6_dep, wlanapi, iphlpapi, winhttp],
+  dependencies: [qt6_dep, gstreamer_dep, gst_video_dep, gst_app_dep, wlanapi, iphlpapi, winhttp],
   win_subsystem: 'windows',
   include_directories: include_directories('.')
 )

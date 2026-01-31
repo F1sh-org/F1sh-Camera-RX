@@ -8,6 +8,7 @@
 #include "wifimanager.h"
 #include "configmanager.h"
 #include "logmanager.h"
+#include "streammanager.h"
 
 int main(int argc, char *argv[])
 {
@@ -43,17 +44,33 @@ int main(int argc, char *argv[])
     // Create and register ConfigManager
     ConfigManager configManager;
     engine.rootContext()->setContextProperty("configManager", &configManager);
+
+    // Create and register StreamManager for video streaming
+    StreamManager streamManager;
+    engine.rootContext()->setContextProperty("streamManager", &streamManager);
+
+    // Register image provider for video frames
+    engine.addImageProvider("videoframe", streamManager.imageProvider());
     
     // Connect SerialPortManager to WifiManager - update serial port when camera connects
     QObject::connect(&serialManager, &SerialPortManager::connectedPortChanged, [&]() {
         wifiManager.setSerialPort(serialManager.connectedPort());
         configManager.setSerialPort(serialManager.connectedPort());
-        
+
         // Log camera connection status
         if (serialManager.cameraConnected()) {
             LogManager::log(QString("Camera connected via COM port: %1").arg(serialManager.connectedPort()));
         } else {
             LogManager::log("No camera connected via COM port");
+        }
+    });
+
+    // Connect WifiManager to SerialPortManager - pause auto-detection during WiFi scan
+    QObject::connect(&wifiManager, &WifiManager::isScanningChanged, [&]() {
+        if (wifiManager.isScanning()) {
+            serialManager.pauseAutoDetect();
+        } else {
+            serialManager.resumeAutoDetect();
         }
     });
     

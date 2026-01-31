@@ -95,6 +95,8 @@ public:
     Q_INVOKABLE void loadConfigFromCamera();
     Q_INVOKABLE void loadSettings();
     Q_INVOKABLE void saveSettings();
+    Q_INVOKABLE QString detectLocalIp();
+    Q_INVOKABLE void setDirectionSaved(bool saved);
 
 signals:
     void txServerIpChanged();
@@ -127,6 +129,7 @@ private:
     // Serial operations
     QByteArray sendSerialCommand(const QString &command);
     void fetchConfigFromSerial();
+    bool sendRotateViaSerial();
     
     // Config values
     QString m_txServerIp = "192.168.4.1";  // Default TX IP

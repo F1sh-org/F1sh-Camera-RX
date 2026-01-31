@@ -62,23 +62,30 @@ bool SerialPortWorker::probePort(const QString &portName)
     } else {
         devicePath = portName;
     }
-    
+
+    LogManager::log(QString("Probing %1 (path: %2)").arg(portName, devicePath));
+
     HANDLE h = CreateFileA(devicePath.toLatin1().constData(),
                            GENERIC_READ | GENERIC_WRITE,
                            0, NULL, OPEN_EXISTING, 0, NULL);
     if (h == INVALID_HANDLE_VALUE) {
+        DWORD err = GetLastError();
+        LogManager::log(QString("  Failed to open %1: error code %2").arg(portName).arg(err));
         return false;
     }
-    
+
+    LogManager::log(QString("  Successfully opened %1").arg(portName));
+
     // Configure serial port
     DCB dcb;
     memset(&dcb, 0, sizeof(DCB));
     dcb.DCBlength = sizeof(DCB);
     if (!GetCommState(h, &dcb)) {
+        LogManager::log(QString("  Failed to get comm state for %1").arg(portName));
         CloseHandle(h);
         return false;
     }
-    
+
     dcb.BaudRate = CBR_115200;
     dcb.ByteSize = 8;
     dcb.Parity = NOPARITY;
@@ -89,12 +96,13 @@ bool SerialPortWorker::probePort(const QString &portName)
     dcb.fRtsControl = RTS_CONTROL_DISABLE;
     dcb.fOutX = FALSE;
     dcb.fInX = FALSE;
-    
+
     if (!SetCommState(h, &dcb)) {
+        LogManager::log(QString("  Failed to set comm state for %1").arg(portName));
         CloseHandle(h);
         return false;
     }
-    
+
     // Set timeouts
     COMMTIMEOUTS timeouts;
     memset(&timeouts, 0, sizeof(COMMTIMEOUTS));
@@ -103,29 +111,36 @@ bool SerialPortWorker::probePort(const QString &portName)
     timeouts.ReadTotalTimeoutConstant = 400;
     timeouts.WriteTotalTimeoutConstant = 200;
     SetCommTimeouts(h, &timeouts);
-    
+
     // Send probe message
+    LogManager::log(QString("  Sending probe: %1").arg(QString::fromUtf8(kProbeMessage).trimmed()));
     DWORD written = 0;
     WriteFile(h, kProbeMessage.constData(), kProbeMessage.size(), &written, NULL);
-    
+    LogManager::log(QString("  Sent %1 bytes").arg(written));
+
     // Read response
     char readbuf[1024] = {0};
     DWORD bytesRead = 0;
     BOOL ok = ReadFile(h, readbuf, sizeof(readbuf) - 1, &bytesRead, NULL);
-    
+
     CloseHandle(h);
-    
+
     if (!ok || bytesRead == 0) {
+        LogManager::log(QString("  No response from %1 (bytesRead=%2, ok=%3)").arg(portName).arg(bytesRead).arg(ok));
         return false;
     }
-    
+
     readbuf[bytesRead] = '\0';
+    LogManager::log(QString("  Received %1 bytes: %2").arg(bytesRead).arg(QString::fromUtf8(readbuf).trimmed()));
+
     bool found = strstr(readbuf, kExpectedResponse.constData()) != nullptr;
-    
+
     if (found) {
-        qDebug() << "Found camera on" << portName << "response:" << readbuf;
+        LogManager::log(QString("  CAMERA DETECTED on %1!").arg(portName));
+    } else {
+        LogManager::log(QString("  Response doesn't match expected: %1").arg(QString::fromUtf8(kExpectedResponse)));
     }
-    
+
     return found;
 #else
     Q_UNUSED(portName);
@@ -137,11 +152,11 @@ void SerialPortWorker::doDetection()
 {
     QStringList cameras;
     QString foundPort;
-    
+
     // Get list of available serial ports
     QStringList ports = listAvailablePorts();
-    // LogManager::log(QString("Scanning %1 serial ports...").arg(ports.size()));
-    
+    LogManager::log(QString("Scanning %1 serial ports: %2").arg(ports.size()).arg(ports.join(", ")));
+
     for (const QString &portName : ports) {
         if (probePort(portName)) {
             cameras.append(portName);
@@ -151,11 +166,11 @@ void SerialPortWorker::doDetection()
             }
         }
     }
-    
-    // if (cameras.isEmpty()) {
-    //     LogManager::log("No camera found on any serial port");
-    // }
-    
+
+    if (cameras.isEmpty()) {
+        LogManager::log("No camera found on any serial port");
+    }
+
     emit detectionFinished(!cameras.isEmpty(), foundPort, cameras);
 }
 
@@ -207,10 +222,22 @@ void SerialPortManager::stopAutoDetect()
     m_autoDetectTimer->stop();
 }
 
+void SerialPortManager::pauseAutoDetect()
+{
+    m_autoDetectPaused = true;
+    LogManager::log("Auto-detection paused");
+}
+
+void SerialPortManager::resumeAutoDetect()
+{
+    m_autoDetectPaused = false;
+    LogManager::log("Auto-detection resumed");
+}
+
 void SerialPortManager::triggerDetection()
 {
-    // Don't start new detection if one is already in progress
-    if (m_detectionInProgress) {
+    // Don't start new detection if one is already in progress or if paused
+    if (m_detectionInProgress || m_autoDetectPaused) {
         return;
     }
     m_detectionInProgress = true;
