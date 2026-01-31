@@ -1,0 +1,7 @@
+module content
+App 1.0 App.qml
+Screen01 1.0 Screen01.ui.qml
+CameraDisplay 1.0 CameraDisplay.qml
+Settings 1.0 Settings.qml
+Start 1.0 Start.qml
+Wifi_pass 1.0 Wifi_pass.ui.qml
