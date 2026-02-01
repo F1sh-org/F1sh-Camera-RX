@@ -12,9 +12,8 @@ F1sh Camera RX is an H.264 video stream receiver for the F1sh Camera system. The
   - Main window: [qml/main.qml](qml/main.qml) - Fullscreen window with popup-based navigation
   - Screens: [qml/content/](qml/content/) - Start, Settings, CameraDisplay, Log, Wifi_pass
   - Resources: [qml.qrc](qml.qrc) - Qt resource file bundling all QML and assets
-- **C++ Backend:** Four manager classes exposed to QML as context properties
+- **C++ Backend:** Five manager classes exposed to QML as context properties
 - **Build system:** Meson with integrated QML resource compilation
-- **Legacy code:** Old GTK/C files (`*.c` in `src/`) and Qt Widgets UI (`mainwindow.*`, `ui/mainwindow.ui`) are not compiled
 
 ## Build System
 
@@ -40,8 +39,7 @@ On Windows, ensure you run from MSYS2 UCRT64 shell so dependencies are on PATH.
 
 **Required:**
 - Qt6 (Core, Gui, Widgets, Qml, Quick, QuickControls2, Network)
-- GStreamer 1.0 with plugins (base, good, bad) - for future video streaming
-- jansson (JSON library)
+- GStreamer 1.0 (gstreamer-1.0, gstreamer-video-1.0, gstreamer-app-1.0)
 - Python 3 (for build scripts)
 - Windows-specific: wlanapi, iphlpapi, winhttp (linked automatically on Windows)
 
@@ -53,7 +51,6 @@ pacman -S mingw-w64-ucrt-x86_64-qt6-base \
           mingw-w64-ucrt-x86_64-gst-plugins-base \
           mingw-w64-ucrt-x86_64-gst-plugins-good \
           mingw-w64-ucrt-x86_64-gst-plugins-bad \
-          mingw-w64-ucrt-x86_64-jansson \
           mingw-w64-ucrt-x86_64-meson \
           mingw-w64-ucrt-x86_64-cmake
 ```
@@ -62,7 +59,7 @@ pacman -S mingw-w64-ucrt-x86_64-qt6-base \
 
 ### Overview
 
-The application follows a **QML frontend + C++ backend** pattern. Four C++ manager classes handle business logic and hardware interfacing, exposed to QML as context properties in [src/main_qml.cpp:31-45](src/main_qml.cpp#L31-L45).
+The application follows a **QML frontend + C++ backend** pattern. Five C++ manager classes handle business logic and hardware interfacing, exposed to QML as context properties in [src/main_qml.cpp:33-50](src/main_qml.cpp#L33-L50).
 
 ### C++ Backend Managers
 
@@ -95,9 +92,19 @@ All managers are QObject subclasses registered as QML context properties:
    - **QML properties:** `logMessages` (QStringList)
    - **Usage:** Other managers call `LogManager::log()` to add timestamped messages
 
+5. **StreamManager** ([src/streammanager.h](src/streammanager.h))
+   - **Purpose:** GStreamer-based H.264 video stream reception and display
+   - **Key methods:** `start()`, `stop()`, `detectDecoders()`, `setPreferredDecoder()`
+   - **QML properties:** `isStreaming`, `status`, `currentDecoder`, `port`, `rotate`, `availableDecoders`
+   - **Components:**
+     - `VideoFrameProvider`: QQuickImageProvider subclass for QML frame display
+     - GStreamer pipeline: UDP source → RTP depayload → H.264 decode → AppSink
+   - **Image provider:** Registered as `"videoframe"` - access in QML via `"image://videoframe/frame"`
+   - **Hardware decoding:** Auto-detects available decoders with priority for hardware acceleration
+
 ### Manager Connections
 
-In [src/main_qml.cpp:48-58](src/main_qml.cpp#L48-L58), SerialPortManager signals are connected to update WifiManager and ConfigManager with the active serial port when a camera is detected.
+In [src/main_qml.cpp:56-75](src/main_qml.cpp#L56-L75), SerialPortManager signals are connected to update WifiManager and ConfigManager with the active serial port when a camera is detected. WifiManager also signals SerialPortManager to pause auto-detection during WiFi scans.
 
 ### QML UI Structure
 
@@ -110,7 +117,7 @@ In [src/main_qml.cpp:48-58](src/main_qml.cpp#L48-L58), SerialPortManager signals
   - `Start.qml` - Main menu/home screen
   - `Settings.qml` - Camera configuration (uses ConfigManager)
   - `Wifi_pass.ui.qml` - WiFi network selection/password input (uses WifiManager)
-  - `CameraDisplay.qml` - Video stream view (GStreamer integration pending)
+  - `CameraDisplay.qml` - Video stream view (uses StreamManager)
   - `Log.qml` - System logs display (uses LogManager)
 
 - **Resource compilation:** [qml.qrc](qml.qrc) bundles all QML files and assets into the executable via Qt's resource system
@@ -122,24 +129,15 @@ In [src/main_qml.cpp:48-58](src/main_qml.cpp#L48-L58), SerialPortManager signals
 - C++ property changes automatically update QML bindings via Qt's property system
 - Signal/slot connections enable async operations (e.g., WiFi scanning on background thread)
 
-### Video Streaming (Pending Implementation)
+### Video Streaming
 
-Legacy `stream.c` contains the GStreamer pipeline logic that needs reimplementation:
-- UDP source receiving H.264 stream on port 8888
-- RTP depayloading → H.264 parsing
-- Hardware-accelerated decoding (D3D11 on Windows) with libav fallback
-- Video display sink
+StreamManager implements the GStreamer pipeline for H.264 video reception:
+- UDP source receiving RTP/H.264 stream on configurable port (default 8888)
+- RTP depayloading → H.264 parsing → hardware/software decoding
+- Automatic decoder detection with preference for hardware acceleration (D3D11 on Windows)
+- Frame delivery to QML via VideoFrameProvider image provider
 
-**Integration point:** [qml/content/CameraDisplay.qml](qml/content/CameraDisplay.qml) will embed GStreamer video output.
-
-### Legacy Code (Not Compiled)
-
-Files in `src/` with `.c` extensions are relics of the old GTK3/C architecture:
-- [src/stream.c](src/stream.c), [src/serial_probe.c](src/serial_probe.c), [src/serial_service.c](src/serial_service.c), [src/wifi_info.c](src/wifi_info.c)
-- Qt Widgets UI: [src/mainwindow.cpp](src/mainwindow.cpp), [src/mainwindow.h](src/mainwindow.h), [ui/mainwindow.ui](ui/mainwindow.ui)
-- Old Qt Design Studio project: [ui/UntitledProject/](ui/UntitledProject/)
-
-Do not modify these files - they are not part of the current build.
+**QML integration:** [qml/content/CameraDisplay.qml](qml/content/CameraDisplay.qml) displays frames via the `"image://videoframe/frame"` source.
 
 ## Windows Packaging
 
@@ -163,8 +161,8 @@ See [docs/MESON-PACKAGING.md](docs/MESON-PACKAGING.md) for detailed documentatio
 ### Adding New C++ Backend Managers
 
 1. Create class files in `src/` (e.g., `newmanager.h`, `newmanager.cpp`)
-2. Add to [meson.build:25-31](meson.build#L25-L31) sources list
-3. If using Qt signals/slots (Q_OBJECT macro), add header to `moc_headers` in [meson.build:10](meson.build#L10)
+2. Add to [meson.build:30-37](meson.build#L30-L37) sources list
+3. If using Qt signals/slots (Q_OBJECT macro), add header to `moc_headers` in [meson.build:15](meson.build#L15)
 4. Register in [src/main_qml.cpp](src/main_qml.cpp) as context property:
    ```cpp
    NewManager newManager;
@@ -181,8 +179,8 @@ See [docs/MESON-PACKAGING.md](docs/MESON-PACKAGING.md) for detailed documentatio
 
 ### Meson Build System Notes
 
-- **MOC processing:** Qt headers with Q_OBJECT are automatically processed by `qt6.preprocess()` in [meson.build:9-12](meson.build#L9-L12)
-- **QML resources:** Compiled via `qt6.compile_resources()` in [meson.build:15-17](meson.build#L15-L17)
+- **MOC processing:** Qt headers with Q_OBJECT are automatically processed by `qt6.preprocess()` in [meson.build:14-17](meson.build#L14-L17)
+- **QML resources:** Compiled via `qt6.compile_resources()` in [meson.build:20-22](meson.build#L20-L22)
 - **Windows libraries:** wlanapi, iphlpapi, winhttp are automatically linked on Windows builds
 - **Reconfigure after meson.build changes:** `meson setup --reconfigure builddir`
 
@@ -193,4 +191,3 @@ See [docs/MESON-PACKAGING.md](docs/MESON-PACKAGING.md) for detailed documentatio
 - **Commit style:** Use conventional commit prefixes (`feat:`, `fix:`, `refactor:`, `chore:`)
 - **Platform-specific code:** Windows-only code uses `#ifdef _WIN32` (see manager headers)
 - **Threading:** SerialPortManager and WifiManager use worker threads to avoid blocking the UI during I/O operations
-- **Legacy code:** Do not modify `.c` files, old Qt Widgets UI, or `ui/UntitledProject/` - not part of active build
