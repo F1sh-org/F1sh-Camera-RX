@@ -6,11 +6,7 @@
 #include <QStringList>
 #include <QVariantList>
 #include <QThread>
-
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#endif
+#include <QSerialPort>
 
 // Protocol status codes as defined in the serial communication standard
 // Message format: {"status": [int], "payload": [data]}\n

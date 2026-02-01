@@ -5,97 +5,51 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
-
-#ifdef _WIN32
-#include <windows.h>
-#endif
+#include <QSerialPort>
 
 // ============ WifiWorker Implementation ============
 
 QByteArray WifiWorker::sendSerialCommand(const QString &portName, const QByteArray &command, int timeoutMs)
 {
-#ifdef _WIN32
-    QString devicePath;
-    if (portName.startsWith("COM")) {
-        int num = portName.mid(3).toInt();
-        if (num >= 10) {
-            devicePath = QString("\\\\.\\%1").arg(portName);
-        } else {
-            devicePath = portName;
-        }
-    } else {
-        devicePath = portName;
-    }
+    QSerialPort serial;
+    serial.setPortName(portName);
+    serial.setBaudRate(QSerialPort::Baud115200);
+    serial.setDataBits(QSerialPort::Data8);
+    serial.setParity(QSerialPort::NoParity);
+    serial.setStopBits(QSerialPort::OneStop);
+    serial.setFlowControl(QSerialPort::NoFlowControl);
 
-    HANDLE h = CreateFileA(devicePath.toLatin1().constData(),
-                           GENERIC_READ | GENERIC_WRITE,
-                           0, NULL, OPEN_EXISTING, 0, NULL);
-    if (h == INVALID_HANDLE_VALUE) {
-        qWarning() << "Failed to open serial port:" << portName;
+    if (!serial.open(QIODevice::ReadWrite)) {
+        qWarning() << "Failed to open serial port:" << portName << serial.errorString();
         return QByteArray();
     }
 
-    // Configure serial port
-    DCB dcb;
-    memset(&dcb, 0, sizeof(DCB));
-    dcb.DCBlength = sizeof(DCB);
-    if (!GetCommState(h, &dcb)) {
-        CloseHandle(h);
-        return QByteArray();
+    // Send command if provided
+    if (!command.isEmpty()) {
+        serial.write(command);
+        serial.flush();
     }
-
-    dcb.BaudRate = CBR_115200;
-    dcb.ByteSize = 8;
-    dcb.Parity = NOPARITY;
-    dcb.StopBits = ONESTOPBIT;
-    dcb.fOutxCtsFlow = FALSE;
-    dcb.fOutxDsrFlow = FALSE;
-    dcb.fDtrControl = DTR_CONTROL_DISABLE;
-    dcb.fRtsControl = RTS_CONTROL_DISABLE;
-    dcb.fOutX = FALSE;
-    dcb.fInX = FALSE;
-
-    if (!SetCommState(h, &dcb)) {
-        CloseHandle(h);
-        return QByteArray();
-    }
-
-    // Set timeouts
-    COMMTIMEOUTS timeouts;
-    memset(&timeouts, 0, sizeof(COMMTIMEOUTS));
-    timeouts.ReadIntervalTimeout = 100;
-    timeouts.ReadTotalTimeoutMultiplier = 0;
-    timeouts.ReadTotalTimeoutConstant = timeoutMs;
-    timeouts.WriteTotalTimeoutConstant = 200;
-    SetCommTimeouts(h, &timeouts);
-
-    // Send command
-    DWORD written = 0;
-    WriteFile(h, command.constData(), command.size(), &written, NULL);
 
     // Read response
     QByteArray response;
-    char readbuf[4096] = {0};
-    DWORD bytesRead = 0;
 
-    // Read until we get a complete JSON response or timeout
-    while (ReadFile(h, readbuf, sizeof(readbuf) - 1, &bytesRead, NULL) && bytesRead > 0) {
-        response.append(readbuf, bytesRead);
+    // Wait for data with timeout
+    if (serial.waitForReadyRead(timeoutMs)) {
+        response = serial.readAll();
 
-        // Check if we have a complete JSON object
-        if (response.contains('}')) {
-            break;
+        // Continue reading if more data is available
+        while (serial.waitForReadyRead(100)) {
+            response.append(serial.readAll());
+
+            // Check if we have a complete JSON object
+            if (response.contains('}')) {
+                break;
+            }
         }
     }
 
-    CloseHandle(h);
+    serial.close();
     return response;
-#else
-    Q_UNUSED(portName);
-    Q_UNUSED(command);
-    Q_UNUSED(timeoutMs);
-    return QByteArray();
-#endif
 }
 
 int WifiWorker::parseResponseCode(const QByteArray &response)

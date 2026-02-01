@@ -30,7 +30,7 @@ meson compile -C builddir
 
 # Run
 ./builddir/f1sh-camera-rx.exe   # Windows
-./builddir/f1sh-camera-rx       # Linux
+./builddir/f1sh-camera-rx       # macOS/Linux
 ```
 
 On Windows, ensure you run from MSYS2 UCRT64 shell so dependencies are on PATH.
@@ -38,15 +38,29 @@ On Windows, ensure you run from MSYS2 UCRT64 shell so dependencies are on PATH.
 ### Dependencies
 
 **Required:**
-- Qt6 (Core, Gui, Widgets, Qml, Quick, QuickControls2, Network)
+- Qt6 (Core, Gui, Widgets, Qml, Quick, QuickControls2, Network, SerialPort)
 - GStreamer 1.0 (gstreamer-1.0, gstreamer-video-1.0, gstreamer-app-1.0)
 - Python 3 (for build scripts)
-- Windows-specific: wlanapi, iphlpapi, winhttp (linked automatically on Windows)
 
-On Windows/MSYS2 UCRT64:
+**Platform-specific installation:**
+
+**macOS (Homebrew):**
+```bash
+brew install qt@6 gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad meson
+```
+
+**Linux (Ubuntu/Debian):**
+```bash
+sudo apt install qt6-base-dev qt6-declarative-dev libqt6serialport6-dev \
+    libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+    gstreamer1.0-plugins-good gstreamer1.0-plugins-bad meson ninja-build
+```
+
+**Windows (MSYS2 UCRT64):**
 ```bash
 pacman -S mingw-w64-ucrt-x86_64-qt6-base \
           mingw-w64-ucrt-x86_64-qt6-declarative \
+          mingw-w64-ucrt-x86_64-qt6-serialport \
           mingw-w64-ucrt-x86_64-gstreamer \
           mingw-w64-ucrt-x86_64-gst-plugins-base \
           mingw-w64-ucrt-x86_64-gst-plugins-good \
@@ -70,20 +84,20 @@ All managers are QObject subclasses registered as QML context properties:
    - **Pattern:** Main thread QObject + background worker thread (`SerialPortWorker`)
    - **Key methods:** `startAutoDetect()`, `stopAutoDetect()`, `refresh()`
    - **QML properties:** `cameraConnected`, `connectedPort`, `availableCameras`
-   - **Note:** Uses Windows-specific serial port enumeration and probing
+   - **Cross-platform:** Uses Qt's `QSerialPort` and `QSerialPortInfo` for serial communication
 
 2. **WifiManager** ([src/wifimanager.h](src/wifimanager.h))
    - **Purpose:** Scan WiFi networks via camera serial commands
    - **Pattern:** Main thread QObject + background worker thread (`WifiWorker`)
    - **Key methods:** `refresh()`, `setSerialPort()`
    - **QML properties:** `networks` (QVariantList), `isScanning`, `serialPort`, `errorMessage`
-   - **Communication:** Sends JSON commands to camera over serial port
+   - **Communication:** Sends JSON commands to camera over serial port using `QSerialPort`
 
 3. **ConfigManager** ([src/configmanager.h](src/configmanager.h))
    - **Purpose:** Configure camera settings (resolution, framerate, rotation, IP addresses)
    - **Methods:** `testConnection()`, `saveConfig()`, `loadConfigFromCamera()`, `loadSettings()`, `saveSettings()`
    - **QML properties:** `txServerIp`, `rxHostIp`, `resolutionIndex`, `framerateIndex`, `rotate`, `cameraConnected`, `directionSaved`
-   - **Communication:** HTTP requests to camera TX server + serial commands
+   - **Communication:** HTTP requests via `QNetworkAccessManager` + serial commands via `QSerialPort`
    - **Persistence:** Uses QSettings for saving/loading user configuration
 
 4. **LogManager** ([src/logmanager.h](src/logmanager.h))
@@ -181,13 +195,13 @@ See [docs/MESON-PACKAGING.md](docs/MESON-PACKAGING.md) for detailed documentatio
 
 - **MOC processing:** Qt headers with Q_OBJECT are automatically processed by `qt6.preprocess()` in [meson.build:14-17](meson.build#L14-L17)
 - **QML resources:** Compiled via `qt6.compile_resources()` in [meson.build:20-22](meson.build#L20-L22)
-- **Windows libraries:** wlanapi, iphlpapi, winhttp are automatically linked on Windows builds
+- **Cross-platform:** All components now use Qt's cross-platform APIs (QSerialPort, QNetworkAccessManager)
 - **Reconfigure after meson.build changes:** `meson setup --reconfigure builddir`
 
 ## Important Notes
 
-- **Current branch:** `huy/add_new_ui` (main branch for PRs: `main`)
+- **Current branch:** `release/v2.0.0` (main branch for PRs: `main`)
 - **Version:** 2.0.0 (defined in [meson.build:2](meson.build#L2))
 - **Commit style:** Use conventional commit prefixes (`feat:`, `fix:`, `refactor:`, `chore:`)
-- **Platform-specific code:** Windows-only code uses `#ifdef _WIN32` (see manager headers)
+- **Cross-platform:** All components use Qt's cross-platform APIs and work on Windows, macOS, and Linux
 - **Threading:** SerialPortManager and WifiManager use worker threads to avoid blocking the UI during I/O operations

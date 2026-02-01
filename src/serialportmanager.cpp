@@ -1,10 +1,8 @@
 #include "serialportmanager.h"
 #include "logmanager.h"
 #include <QDebug>
-
-#ifdef _WIN32
-#include <windows.h>
-#endif
+#include <QSerialPort>
+#include <QSerialPortInfo>
 
 static const QByteArray kProbeMessage = "{\"status\":1}\n";
 static const QByteArray kExpectedResponse = "{\"status\":1}";
@@ -14,126 +12,78 @@ static const QByteArray kExpectedResponse = "{\"status\":1}";
 QStringList SerialPortWorker::listAvailablePorts()
 {
     QStringList ports;
-    
+
+    // Use Qt's cross-platform serial port enumeration
+    const QList<QSerialPortInfo> availablePorts = QSerialPortInfo::availablePorts();
+    for (const QSerialPortInfo &info : availablePorts) {
+        // Filter to USB serial ports (typically our F1sh Camera)
+        // On Windows: COM ports
+        // On macOS: /dev/tty.usbserial* or /dev/tty.usbmodem*
+        // On Linux: /dev/ttyUSB* or /dev/ttyACM*
+        QString portName = info.portName();
+
 #ifdef _WIN32
-    // Enumerate COM ports on Windows using QueryDosDevice
-    for (int i = 1; i <= 20; ++i) {
-        QString portName = QString("COM%1").arg(i);
-        QByteArray dosName = portName.toLatin1();
-        char target[256];
-        
-        if (QueryDosDeviceA(dosName.constData(), target, sizeof(target)) != 0) {
-            ports.append(portName);
-            continue;
-        }
-        
-        // Also try opening the port to check if it exists
-        QString devicePath = QString("\\\\.\\%1").arg(portName);
-        HANDLE h = CreateFileA(devicePath.toLatin1().constData(),
-                               GENERIC_READ | GENERIC_WRITE,
-                               0, NULL, OPEN_EXISTING, 0, NULL);
-        if (h != INVALID_HANDLE_VALUE) {
-            CloseHandle(h);
-            ports.append(portName);
-        } else {
-            DWORD err = GetLastError();
-            if (err == ERROR_ACCESS_DENIED || err == ERROR_SHARING_VIOLATION) {
-                // Port exists but is in use
-                ports.append(portName);
-            }
-        }
-    }
+        // On Windows, use the port name directly (e.g., "COM3")
+        ports.append(portName);
+#else
+        // On macOS/Linux, use the system location (full path)
+        ports.append(info.systemLocation());
 #endif
-    
+    }
+
     return ports;
 }
 
 bool SerialPortWorker::probePort(const QString &portName)
 {
-#ifdef _WIN32
-    QString devicePath;
-    if (portName.startsWith("COM")) {
-        int num = portName.mid(3).toInt();
-        if (num >= 10) {
-            devicePath = QString("\\\\.\\%1").arg(portName);
-        } else {
-            devicePath = portName;
-        }
-    } else {
-        devicePath = portName;
-    }
+    LogManager::log(QString("Probing %1").arg(portName));
 
-    LogManager::log(QString("Probing %1 (path: %2)").arg(portName, devicePath));
+    QSerialPort serial;
+    serial.setPortName(portName);
+    serial.setBaudRate(QSerialPort::Baud115200);
+    serial.setDataBits(QSerialPort::Data8);
+    serial.setParity(QSerialPort::NoParity);
+    serial.setStopBits(QSerialPort::OneStop);
+    serial.setFlowControl(QSerialPort::NoFlowControl);
 
-    HANDLE h = CreateFileA(devicePath.toLatin1().constData(),
-                           GENERIC_READ | GENERIC_WRITE,
-                           0, NULL, OPEN_EXISTING, 0, NULL);
-    if (h == INVALID_HANDLE_VALUE) {
-        DWORD err = GetLastError();
-        LogManager::log(QString("  Failed to open %1: error code %2").arg(portName).arg(err));
+    if (!serial.open(QIODevice::ReadWrite)) {
+        LogManager::log(QString("  Failed to open %1: %2").arg(portName, serial.errorString()));
         return false;
     }
 
     LogManager::log(QString("  Successfully opened %1").arg(portName));
 
-    // Configure serial port
-    DCB dcb;
-    memset(&dcb, 0, sizeof(DCB));
-    dcb.DCBlength = sizeof(DCB);
-    if (!GetCommState(h, &dcb)) {
-        LogManager::log(QString("  Failed to get comm state for %1").arg(portName));
-        CloseHandle(h);
-        return false;
-    }
-
-    dcb.BaudRate = CBR_115200;
-    dcb.ByteSize = 8;
-    dcb.Parity = NOPARITY;
-    dcb.StopBits = ONESTOPBIT;
-    dcb.fOutxCtsFlow = FALSE;
-    dcb.fOutxDsrFlow = FALSE;
-    dcb.fDtrControl = DTR_CONTROL_DISABLE;
-    dcb.fRtsControl = RTS_CONTROL_DISABLE;
-    dcb.fOutX = FALSE;
-    dcb.fInX = FALSE;
-
-    if (!SetCommState(h, &dcb)) {
-        LogManager::log(QString("  Failed to set comm state for %1").arg(portName));
-        CloseHandle(h);
-        return false;
-    }
-
-    // Set timeouts
-    COMMTIMEOUTS timeouts;
-    memset(&timeouts, 0, sizeof(COMMTIMEOUTS));
-    timeouts.ReadIntervalTimeout = 50;
-    timeouts.ReadTotalTimeoutMultiplier = 0;
-    timeouts.ReadTotalTimeoutConstant = 400;
-    timeouts.WriteTotalTimeoutConstant = 200;
-    SetCommTimeouts(h, &timeouts);
-
     // Send probe message
     LogManager::log(QString("  Sending probe: %1").arg(QString::fromUtf8(kProbeMessage).trimmed()));
-    DWORD written = 0;
-    WriteFile(h, kProbeMessage.constData(), kProbeMessage.size(), &written, NULL);
+    qint64 written = serial.write(kProbeMessage);
+    serial.flush();
     LogManager::log(QString("  Sent %1 bytes").arg(written));
 
-    // Read response
-    char readbuf[1024] = {0};
-    DWORD bytesRead = 0;
-    BOOL ok = ReadFile(h, readbuf, sizeof(readbuf) - 1, &bytesRead, NULL);
-
-    CloseHandle(h);
-
-    if (!ok || bytesRead == 0) {
-        LogManager::log(QString("  No response from %1 (bytesRead=%2, ok=%3)").arg(portName).arg(bytesRead).arg(ok));
+    // Wait for response with timeout
+    if (!serial.waitForReadyRead(400)) {
+        LogManager::log(QString("  No response from %1 (timeout)").arg(portName));
+        serial.close();
         return false;
     }
 
-    readbuf[bytesRead] = '\0';
-    LogManager::log(QString("  Received %1 bytes: %2").arg(bytesRead).arg(QString::fromUtf8(readbuf).trimmed()));
+    // Read response
+    QByteArray response = serial.readAll();
 
-    bool found = strstr(readbuf, kExpectedResponse.constData()) != nullptr;
+    // Continue reading if more data is available
+    while (serial.waitForReadyRead(50)) {
+        response.append(serial.readAll());
+    }
+
+    serial.close();
+
+    if (response.isEmpty()) {
+        LogManager::log(QString("  No response from %1").arg(portName));
+        return false;
+    }
+
+    LogManager::log(QString("  Received %1 bytes: %2").arg(response.size()).arg(QString::fromUtf8(response).trimmed()));
+
+    bool found = response.contains(kExpectedResponse);
 
     if (found) {
         LogManager::log(QString("  CAMERA DETECTED on %1!").arg(portName));
@@ -142,10 +92,6 @@ bool SerialPortWorker::probePort(const QString &portName)
     }
 
     return found;
-#else
-    Q_UNUSED(portName);
-    return false;
-#endif
 }
 
 void SerialPortWorker::doDetection()

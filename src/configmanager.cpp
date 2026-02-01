@@ -11,11 +11,7 @@
 #include <QTimer>
 #include <QCoreApplication>
 #include <QNetworkInterface>
-
-#ifdef _WIN32
-#include <windows.h>
-#include <winhttp.h>
-#endif
+#include <QSerialPort>
 
 // Resolution presets (width, height)
 static const int kResolutionPresets[][2] = {
@@ -274,121 +270,67 @@ void ConfigManager::loadConfigFromCamera()
 
 // ============ HTTP Operations ============
 
-#ifdef _WIN32
-// Simple HTTP GET/POST using WinHTTP
-static bool doHttpRequest(const QString &host, int port, const QString &path, 
+// Cross-platform HTTP request using Qt's QNetworkAccessManager
+static bool doHttpRequest(const QString &host, int port, const QString &path,
                           const QString &method, const QByteArray &body,
                           QByteArray &response)
 {
     response.clear();
-    
-    HINTERNET hSession = WinHttpOpen(L"F1shCameraRX/1.0",
-                                     WINHTTP_ACCESS_TYPE_NO_PROXY,
-                                     WINHTTP_NO_PROXY_NAME,
-                                     WINHTTP_NO_PROXY_BYPASS, 0);
-    if (!hSession) {
-        qWarning() << "WinHttpOpen failed";
-        return false;
-    }
-    
-    std::wstring wHost = host.toStdWString();
-    HINTERNET hConnect = WinHttpConnect(hSession, wHost.c_str(), port, 0);
-    if (!hConnect) {
-        qWarning() << "WinHttpConnect failed";
-        WinHttpCloseHandle(hSession);
-        return false;
-    }
-    
-    std::wstring wPath = path.toStdWString();
-    std::wstring wMethod = method.toStdWString();
-    HINTERNET hRequest = WinHttpOpenRequest(hConnect, wMethod.c_str(), wPath.c_str(),
-                                            NULL, WINHTTP_NO_REFERER,
-                                            WINHTTP_DEFAULT_ACCEPT_TYPES, 0);
-    if (!hRequest) {
-        qWarning() << "WinHttpOpenRequest failed";
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
-        return false;
-    }
-    
-    // Set timeouts (5 seconds)
-    DWORD timeout = 5000;
-    WinHttpSetOption(hRequest, WINHTTP_OPTION_CONNECT_TIMEOUT, &timeout, sizeof(timeout));
-    WinHttpSetOption(hRequest, WINHTTP_OPTION_SEND_TIMEOUT, &timeout, sizeof(timeout));
-    WinHttpSetOption(hRequest, WINHTTP_OPTION_RECEIVE_TIMEOUT, &timeout, sizeof(timeout));
-    
-    BOOL bResults = FALSE;
-    if (body.isEmpty()) {
-        bResults = WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
-                                      WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
+
+    QNetworkAccessManager manager;
+    QUrl url;
+    url.setScheme("http");
+    url.setHost(host);
+    url.setPort(port);
+    url.setPath(path);
+
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    request.setTransferTimeout(5000); // 5 second timeout
+
+    QNetworkReply *reply = nullptr;
+
+    if (method == "GET") {
+        reply = manager.get(request);
+    } else if (method == "POST") {
+        reply = manager.post(request, body);
     } else {
-        const wchar_t *headers = L"Content-Type: application/json";
-        bResults = WinHttpSendRequest(hRequest, headers, -1,
-                                      (LPVOID)body.constData(), body.size(), body.size(), 0);
-    }
-    
-    if (!bResults) {
-        qWarning() << "WinHttpSendRequest failed:" << GetLastError();
-        WinHttpCloseHandle(hRequest);
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
+        qWarning() << "Unsupported HTTP method:" << method;
         return false;
     }
-    
-    bResults = WinHttpReceiveResponse(hRequest, NULL);
-    if (!bResults) {
-        qWarning() << "WinHttpReceiveResponse failed:" << GetLastError();
-        WinHttpCloseHandle(hRequest);
-        WinHttpCloseHandle(hConnect);
-        WinHttpCloseHandle(hSession);
-        return false;
-    }
-    
-    // Check status code
-    DWORD statusCode = 0;
-    DWORD statusCodeSize = sizeof(statusCode);
-    WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-                        NULL, &statusCode, &statusCodeSize, NULL);
-    
-    if (statusCode != 200) {
-        qWarning() << "HTTP status code:" << statusCode;
-    }
-    
-    // Read response
-    DWORD dwSize = 0;
-    do {
-        dwSize = 0;
-        if (!WinHttpQueryDataAvailable(hRequest, &dwSize)) {
-            break;
+
+    // Wait for the reply synchronously using event loop
+    QEventLoop loop;
+    QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    loop.exec();
+
+    bool success = false;
+
+    if (reply->error() == QNetworkReply::NoError) {
+        int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        response = reply->readAll();
+
+        if (statusCode != 200) {
+            qWarning() << "HTTP status code:" << statusCode;
         }
-        
-        if (dwSize > 0) {
-            char *buffer = new char[dwSize + 1];
-            DWORD dwDownloaded = 0;
-            if (WinHttpReadData(hRequest, buffer, dwSize, &dwDownloaded)) {
-                response.append(buffer, dwDownloaded);
-            }
-            delete[] buffer;
-        }
-    } while (dwSize > 0);
-    
-    WinHttpCloseHandle(hRequest);
-    WinHttpCloseHandle(hConnect);
-    WinHttpCloseHandle(hSession);
-    
-    return statusCode == 200;
+
+        success = (statusCode == 200);
+    } else {
+        qWarning() << "HTTP request failed:" << reply->errorString();
+    }
+
+    reply->deleteLater();
+    return success;
 }
-#endif
 
 bool ConfigManager::httpTestConnection()
 {
-#ifdef _WIN32
     QByteArray response;
     bool success = doHttpRequest(m_txServerIp, m_txHttpPort, "/health", "GET", QByteArray(), response);
-    
+
     if (success && !response.isEmpty()) {
         qDebug() << "Health check response:" << response;
-        
+
         // Parse JSON response
         QJsonParseError error;
         QJsonDocument doc = QJsonDocument::fromJson(response, &error);
@@ -400,16 +342,12 @@ bool ConfigManager::httpTestConnection()
             }
         }
     }
-    
+
     return false;
-#else
-    return false;
-#endif
 }
 
 bool ConfigManager::httpSendConfig()
 {
-#ifdef _WIN32
     // Create JSON config
     QJsonObject config;
     config["host"] = m_rxHostIp;
@@ -417,130 +355,83 @@ bool ConfigManager::httpSendConfig()
     config["width"] = m_width;
     config["height"] = m_height;
     config["framerate"] = m_framerate;
-    
+
     QJsonDocument doc(config);
     QByteArray body = doc.toJson(QJsonDocument::Compact);
-    
+
     qDebug() << "Sending config:" << body;
-    
+
     QByteArray response;
     bool success = doHttpRequest(m_txServerIp, m_txHttpPort, "/config", "POST", body, response);
-    
+
     if (success) {
         qDebug() << "Config response:" << response;
     }
-    
+
     return success;
-#else
-    return false;
-#endif
 }
 
 bool ConfigManager::httpSendRxRotate(int rotate)
 {
-#ifdef _WIN32
     QJsonObject obj;
     obj["rotate"] = rotate;
-    
+
     QJsonDocument doc(obj);
     QByteArray body = doc.toJson(QJsonDocument::Compact);
-    
+
     QByteArray response;
     // RX server runs on port 8889
     bool success = doHttpRequest(m_rxHostIp, 8889, "/rotate", "POST", body, response);
-    
+
     return success;
-#else
-    return false;
-#endif
 }
 
 // ============ Serial Operations ============
 
 QByteArray ConfigManager::sendSerialCommand(const QString &command)
 {
-#ifdef _WIN32
     if (m_serialPort.isEmpty()) {
         return QByteArray();
     }
-    
-    QString devicePath;
-    if (m_serialPort.startsWith("COM")) {
-        int num = m_serialPort.mid(3).toInt();
-        if (num >= 10) {
-            devicePath = QString("\\\\.\\%1").arg(m_serialPort);
-        } else {
-            devicePath = m_serialPort;
-        }
-    } else {
-        devicePath = m_serialPort;
-    }
-    
-    HANDLE h = CreateFileA(devicePath.toLatin1().constData(),
-                           GENERIC_READ | GENERIC_WRITE,
-                           0, NULL, OPEN_EXISTING, 0, NULL);
-    if (h == INVALID_HANDLE_VALUE) {
-        qWarning() << "Failed to open serial port:" << m_serialPort;
+
+    QSerialPort serial;
+    serial.setPortName(m_serialPort);
+    serial.setBaudRate(QSerialPort::Baud115200);
+    serial.setDataBits(QSerialPort::Data8);
+    serial.setParity(QSerialPort::NoParity);
+    serial.setStopBits(QSerialPort::OneStop);
+    serial.setFlowControl(QSerialPort::NoFlowControl);
+
+    if (!serial.open(QIODevice::ReadWrite)) {
+        qWarning() << "Failed to open serial port:" << m_serialPort << serial.errorString();
         return QByteArray();
     }
-    
-    // Configure serial port
-    DCB dcb;
-    memset(&dcb, 0, sizeof(DCB));
-    dcb.DCBlength = sizeof(DCB);
-    if (!GetCommState(h, &dcb)) {
-        CloseHandle(h);
-        return QByteArray();
-    }
-    
-    dcb.BaudRate = CBR_115200;
-    dcb.ByteSize = 8;
-    dcb.Parity = NOPARITY;
-    dcb.StopBits = ONESTOPBIT;
-    dcb.fOutxCtsFlow = FALSE;
-    dcb.fOutxDsrFlow = FALSE;
-    dcb.fDtrControl = DTR_CONTROL_DISABLE;
-    dcb.fRtsControl = RTS_CONTROL_DISABLE;
-    dcb.fOutX = FALSE;
-    dcb.fInX = FALSE;
-    
-    if (!SetCommState(h, &dcb)) {
-        CloseHandle(h);
-        return QByteArray();
-    }
-    
-    // Set timeouts
-    COMMTIMEOUTS timeouts;
-    memset(&timeouts, 0, sizeof(COMMTIMEOUTS));
-    timeouts.ReadIntervalTimeout = 100;
-    timeouts.ReadTotalTimeoutMultiplier = 0;
-    timeouts.ReadTotalTimeoutConstant = 4000;
-    timeouts.WriteTotalTimeoutConstant = 200;
-    SetCommTimeouts(h, &timeouts);
-    
+
     // Send command
     QByteArray cmdBytes = command.toUtf8();
-    DWORD written = 0;
-    WriteFile(h, cmdBytes.constData(), cmdBytes.size(), &written, NULL);
-    
+    serial.write(cmdBytes);
+    serial.flush();
+
     // Read response
     QByteArray response;
-    char readbuf[4096] = {0};
-    DWORD bytesRead = 0;
-    
-    while (ReadFile(h, readbuf, sizeof(readbuf) - 1, &bytesRead, NULL) && bytesRead > 0) {
-        response.append(readbuf, bytesRead);
-        if (response.contains('}')) {
-            break;
+
+    // Wait for data with timeout
+    if (serial.waitForReadyRead(4000)) {
+        response = serial.readAll();
+
+        // Continue reading if more data is available
+        while (serial.waitForReadyRead(100)) {
+            response.append(serial.readAll());
+
+            // Check if we have a complete JSON object
+            if (response.contains('}')) {
+                break;
+            }
         }
     }
-    
-    CloseHandle(h);
+
+    serial.close();
     return response;
-#else
-    Q_UNUSED(command);
-    return QByteArray();
-#endif
 }
 
 void ConfigManager::fetchConfigFromSerial()

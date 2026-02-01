@@ -3,7 +3,7 @@ project('f1sh-camera-rx', 'cpp', 'c',
   default_options: ['cpp_std=c++17', 'warning_level=2'])
 
 qt6 = import('qt6')
-qt6_dep = dependency('qt6', modules: ['Core', 'Gui', 'Widgets', 'Qml', 'Quick', 'QuickControls2', 'Network'])
+qt6_dep = dependency('qt6', modules: ['Core', 'Gui', 'Widgets', 'Qml', 'Quick', 'QuickControls2', 'Network', 'SerialPort'])
 
 # GStreamer dependencies
 gstreamer_dep = dependency('gstreamer-1.0', required: true)
