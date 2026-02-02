@@ -10,9 +10,43 @@ gstreamer_dep = dependency('gstreamer-1.0', required: true)
 gst_video_dep = dependency('gstreamer-video-1.0', required: true)
 gst_app_dep = dependency('gstreamer-app-1.0', required: true)
 
+# gRPC and Protobuf dependencies
+protobuf_dep = dependency('protobuf', required: true)
+grpc_dep = dependency('grpc++', required: true)
+
+# Find protoc and grpc_cpp_plugin
+protoc = find_program('protoc', required: true)
+grpc_cpp_plugin = find_program('grpc_cpp_plugin', required: true)
+
+# Generate protobuf and gRPC sources
+proto_file = files('proto/f1sh_camera.proto')
+
+# Custom target for protobuf generation
+proto_gen = custom_target('proto_gen',
+  input: proto_file,
+  output: ['f1sh_camera.pb.cc', 'f1sh_camera.pb.h'],
+  command: [protoc,
+    '--proto_path=@CURRENT_SOURCE_DIR@/proto',
+    '--cpp_out=@OUTDIR@',
+    '@INPUT@'],
+  depend_files: proto_file
+)
+
+# Custom target for gRPC generation
+grpc_gen = custom_target('grpc_gen',
+  input: proto_file,
+  output: ['f1sh_camera.grpc.pb.cc', 'f1sh_camera.grpc.pb.h'],
+  command: [protoc,
+    '--proto_path=@CURRENT_SOURCE_DIR@/proto',
+    '--grpc_out=@OUTDIR@',
+    '--plugin=protoc-gen-grpc=' + grpc_cpp_plugin.full_path(),
+    '@INPUT@'],
+  depend_files: proto_file
+)
+
 # Process Qt MOC files
 processed = qt6.preprocess(
-  moc_headers: ['src/serialportmanager.h', 'src/wifimanager.h', 'src/configmanager.h', 'src/logmanager.h', 'src/streammanager.h'],
+  moc_headers: ['src/serialportmanager.h', 'src/wifimanager.h', 'src/configmanager.h', 'src/logmanager.h', 'src/streammanager.h', 'src/grpcmanager.h'],
   dependencies: qt6_dep
 )
 
@@ -34,11 +68,12 @@ sources = [
   'src/configmanager.cpp',
   'src/logmanager.cpp',
   'src/streammanager.cpp',
+  'src/grpcmanager.cpp',
 ]
 
 executable('f1sh-camera-rx',
-  sources + processed + qml_resources,
-  dependencies: [qt6_dep, gstreamer_dep, gst_video_dep, gst_app_dep, wlanapi, iphlpapi, winhttp],
+  sources + processed + qml_resources + [proto_gen, grpc_gen],
+  dependencies: [qt6_dep, gstreamer_dep, gst_video_dep, gst_app_dep, protobuf_dep, grpc_dep, wlanapi, iphlpapi, winhttp],
   win_subsystem: 'windows',
-  include_directories: include_directories('.')
+  include_directories: [include_directories('.'), include_directories('builddir')]
 )

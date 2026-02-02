@@ -9,6 +9,7 @@
 #include "configmanager.h"
 #include "logmanager.h"
 #include "streammanager.h"
+#include "grpcmanager.h"
 
 int main(int argc, char *argv[])
 {
@@ -48,6 +49,10 @@ int main(int argc, char *argv[])
     // Create and register StreamManager for video streaming
     StreamManager streamManager;
     engine.rootContext()->setContextProperty("streamManager", &streamManager);
+
+    // Create and register GrpcManager for gRPC communication with TX
+    GrpcManager grpcManager;
+    engine.rootContext()->setContextProperty("grpcManager", &grpcManager);
 
     // Register image provider for video frames
     engine.addImageProvider("videoframe", streamManager.imageProvider());

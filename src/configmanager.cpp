@@ -429,6 +429,22 @@ void ConfigManager::setSerialPort(const QString &port)
     }
 }
 
+void ConfigManager::setGrpcServerAddress(const QString &address)
+{
+    if (m_grpcServerAddress != address) {
+        m_grpcServerAddress = address;
+        emit grpcServerAddressChanged();
+    }
+}
+
+void ConfigManager::setUseGrpc(bool use)
+{
+    if (m_useGrpc != use) {
+        m_useGrpc = use;
+        emit useGrpcChanged();
+    }
+}
+
 void ConfigManager::setStatusMessage(const QString &msg)
 {
     if (m_statusMessage != msg) {
@@ -486,6 +502,8 @@ void ConfigManager::loadSettings()
     m_resolutionIndex = m_settings->value("resolutionIndex", 0).toInt();
     m_framerateIndex = m_settings->value("framerateIndex", 0).toInt();
     m_rotate = m_settings->value("rotate", 0).toInt();
+    m_grpcServerAddress = m_settings->value("grpcServerAddress", "192.168.4.1:50051").toString();
+    m_useGrpc = m_settings->value("useGrpc", true).toBool();
 
     applyResolutionSelection();
     applyFramerateSelection();
@@ -495,10 +513,13 @@ void ConfigManager::loadSettings()
     emit resolutionIndexChanged();
     emit framerateIndexChanged();
     emit rotateChanged();
+    emit grpcServerAddressChanged();
+    emit useGrpcChanged();
 
     qDebug() << "Settings loaded - TX:" << m_txServerIp << "RX:" << m_rxHostIp
              << "Resolution:" << m_width << "x" << m_height
-             << "Framerate:" << m_framerate << "Rotate:" << m_rotate;
+             << "Framerate:" << m_framerate << "Rotate:" << m_rotate
+             << "gRPC:" << m_grpcServerAddress << "useGrpc:" << m_useGrpc;
 }
 
 void ConfigManager::saveSettings()
@@ -508,6 +529,8 @@ void ConfigManager::saveSettings()
     m_settings->setValue("resolutionIndex", m_resolutionIndex);
     m_settings->setValue("framerateIndex", m_framerateIndex);
     m_settings->setValue("rotate", m_rotate);
+    m_settings->setValue("grpcServerAddress", m_grpcServerAddress);
+    m_settings->setValue("useGrpc", m_useGrpc);
     m_settings->sync();
 
     qDebug() << "Settings saved to local storage";

@@ -74,6 +74,10 @@ class ConfigManager : public QObject
     // Serial port (from SerialPortManager)
     Q_PROPERTY(QString serialPort READ serialPort WRITE setSerialPort NOTIFY serialPortChanged)
 
+    // gRPC server address (for direct TX communication)
+    Q_PROPERTY(QString grpcServerAddress READ grpcServerAddress WRITE setGrpcServerAddress NOTIFY grpcServerAddressChanged)
+    Q_PROPERTY(bool useGrpc READ useGrpc WRITE setUseGrpc NOTIFY useGrpcChanged)
+
 public:
     explicit ConfigManager(QObject *parent = nullptr);
     ~ConfigManager();
@@ -116,6 +120,12 @@ public:
     QString serialPort() const { return m_serialPort; }
     void setSerialPort(const QString &port);
 
+    // gRPC server address
+    QString grpcServerAddress() const { return m_grpcServerAddress; }
+    void setGrpcServerAddress(const QString &address);
+    bool useGrpc() const { return m_useGrpc; }
+    void setUseGrpc(bool use);
+
     // Actions
     Q_INVOKABLE void testConnection();
     Q_INVOKABLE void saveConfig();
@@ -140,6 +150,8 @@ signals:
     void serialPortChanged();
     void configSaved();
     void connectionTestResult(bool success);
+    void grpcServerAddressChanged();
+    void useGrpcChanged();
 
     // Internal signals to trigger worker
     void startTestConnection(const QString &host, int port);
@@ -193,6 +205,10 @@ private:
 
     // Serial port for camera communication
     QString m_serialPort;
+
+    // gRPC settings
+    QString m_grpcServerAddress;
+    bool m_useGrpc = true;  // Default to using gRPC
 
     // Settings storage
     QSettings *m_settings = nullptr;
