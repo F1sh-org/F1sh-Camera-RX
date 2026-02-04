@@ -10,6 +10,7 @@
 #include "logmanager.h"
 #include "streammanager.h"
 #include "grpcmanager.h"
+#include "mdnsmanager.h"
 
 int main(int argc, char *argv[])
 {
@@ -53,6 +54,10 @@ int main(int argc, char *argv[])
     // Create and register GrpcManager for gRPC communication with TX
     GrpcManager grpcManager;
     engine.rootContext()->setContextProperty("grpcManager", &grpcManager);
+
+    // Create and register MdnsManager for camera discovery
+    MdnsManager mdnsManager;
+    engine.rootContext()->setContextProperty("mdnsManager", &mdnsManager);
 
     // Register image provider for video frames
     engine.addImageProvider("videoframe", streamManager.imageProvider());

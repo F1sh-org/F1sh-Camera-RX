@@ -46,7 +46,7 @@ grpc_gen = custom_target('grpc_gen',
 
 # Process Qt MOC files
 processed = qt6.preprocess(
-  moc_headers: ['src/serialportmanager.h', 'src/wifimanager.h', 'src/configmanager.h', 'src/logmanager.h', 'src/streammanager.h', 'src/grpcmanager.h'],
+  moc_headers: ['src/serialportmanager.h', 'src/wifimanager.h', 'src/configmanager.h', 'src/logmanager.h', 'src/streammanager.h', 'src/grpcmanager.h', 'src/mdnsmanager.h'],
   dependencies: qt6_dep
 )
 
@@ -69,6 +69,7 @@ sources = [
   'src/logmanager.cpp',
   'src/streammanager.cpp',
   'src/grpcmanager.cpp',
+  'src/mdnsmanager.cpp',
 ]
 
 executable('f1sh-camera-rx',

@@ -345,7 +345,12 @@ void StreamManager::start()
     }
 
     LogManager::log(QString("Starting stream on UDP port %1...").arg(m_port));
+    LogManager::log(QString("Stream configuration: port=%1, rotate=%2").arg(m_port).arg(m_rotate));
     setStatus("Starting...");
+
+    // Reset first frame flag for new session
+    m_firstFrameReceived = false;
+    m_frameCount = 0;
 
     if (!createPipeline()) {
         emit errorOccurred("Failed to create pipeline");
@@ -365,6 +370,7 @@ void StreamManager::start()
     emit isStreamingChanged();
     setStatus(QString("Streaming (%1)").arg(m_currentDecoder));
     LogManager::log(QString("Stream started on port %1 using %2").arg(m_port).arg(m_currentDecoder));
+    LogManager::log("Waiting for video frames...");
 
     // Start frame polling timer (30fps polling rate)
     m_frameTimer->start(33);
@@ -462,12 +468,17 @@ void StreamManager::pollForFrames()
                 // Make a deep copy since the buffer will be released
                 m_imageProvider->updateFrame(frame.copy());
 
-                // Log first frame received
-                static bool firstFrame = true;
-                if (firstFrame) {
-                    LogManager::log(QString("First frame received (poll): %1x%2, stride=%3")
+                // Log first frame received (per session)
+                m_frameCount++;
+                if (!m_firstFrameReceived) {
+                    LogManager::log(QString("First frame received: %1x%2, stride=%3")
                                    .arg(videoInfo.width).arg(videoInfo.height).arg(stride));
-                    firstFrame = false;
+                    m_firstFrameReceived = true;
+                }
+
+                // Log periodic frame count updates (every 300 frames ~ 10 seconds at 30fps)
+                if (m_frameCount % 300 == 0) {
+                    LogManager::log(QString("Received %1 frames").arg(m_frameCount));
                 }
 
                 emit frameReady();
@@ -511,12 +522,12 @@ GstFlowReturn StreamManager::onNewSample(GstAppSink *sink, gpointer userData)
                 // Make a deep copy since the buffer will be released
                 self->m_imageProvider->updateFrame(frame.copy());
 
-                // Log first frame received
-                static bool firstFrame = true;
-                if (firstFrame) {
-                    LogManager::log(QString("First frame received: %1x%2, stride=%3")
+                // Log first frame received (per session)
+                self->m_frameCount++;
+                if (!self->m_firstFrameReceived) {
+                    LogManager::log(QString("First frame received (callback): %1x%2, stride=%3")
                                    .arg(videoInfo.width).arg(videoInfo.height).arg(stride));
-                    firstFrame = false;
+                    self->m_firstFrameReceived = true;
                 }
 
                 emit self->frameReady();

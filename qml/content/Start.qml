@@ -28,6 +28,90 @@ Item {
         }
     }
 
+    // Camera Selection Dialog (shown when multiple cameras found via mDNS)
+    Dialog {
+        id: cameraSelectionDialog
+        title: "Select Camera"
+        modal: true
+        anchors.centerIn: parent
+        width: 450
+        height: 350
+        standardButtons: Dialog.Cancel
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 20
+            spacing: 10
+
+            Label {
+                text: "Multiple cameras found on the network. Please select one:"
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+
+            ListView {
+                id: cameraListView
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                model: mdnsManager ? mdnsManager.discoveredCameras : []
+
+                delegate: ItemDelegate {
+                    width: cameraListView.width
+                    height: 60
+
+                    contentItem: ColumnLayout {
+                        spacing: 2
+
+                        Label {
+                            text: modelData.name || "Unknown Camera"
+                            font.bold: true
+                            font.pointSize: 14
+                        }
+
+                        Label {
+                            text: modelData.ip + ":" + modelData.port + " (" + modelData.encoding + ")"
+                            font.pointSize: 11
+                            opacity: 0.7
+                        }
+                    }
+
+                    onClicked: {
+                        if (mdnsManager) {
+                            mdnsManager.selectCamera(index)
+                            cameraSelectionDialog.close()
+
+                            // Update TX server IP and test connection
+                            if (configManager && mdnsManager.cameraIp) {
+                                configManager.txServerIp = mdnsManager.cameraIp
+                                configManager.testConnection()
+                                if (logManager) logManager.logMessage("Selected camera: " + modelData.name + " at " + modelData.ip)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Handle multiple cameras found signal
+    Connections {
+        target: mdnsManager
+        function onMultipleCamerasFound() {
+            cameraSelectionDialog.open()
+        }
+
+        // Auto-set TX IP when single camera is found on startup
+        function onCameraFoundChanged() {
+            if (mdnsManager && mdnsManager.cameraFound && mdnsManager.cameraIp) {
+                if (configManager) {
+                    configManager.txServerIp = mdnsManager.cameraIp
+                    if (logManager) logManager.logMessage("Auto-discovered camera: " + mdnsManager.cameraHostname + " at " + mdnsManager.cameraIp)
+                }
+            }
+        }
+    }
+
     // WiFi Password Dialog
     Dialog {
         id: wifiPasswordDialog
@@ -590,22 +674,118 @@ Item {
                 id: connectCameraButton
                 width: 220
                 height: 70
-                text: qsTr("Connect Camera")
+                text: {
+                    if (mdnsManager && mdnsManager.isDiscovering) return qsTr("Discovering...")
+                    if (grpcManager && grpcManager.isBusy) return qsTr("Connecting...")
+                    return qsTr("Connect Camera")
+                }
                 font.pointSize: 18
                 font.bold: true
-                // Enabled when direction has been saved AND we have a TX IP (from WiFi connection)
-                enabled: configManager ? configManager.directionSaved && !configManager.isBusy : false
+                // Enabled when not busy and camera found via mDNS or has TX IP
+                enabled: {
+                    if (!configManager) return false
+                    var notBusy = !configManager.isBusy && !(grpcManager && grpcManager.isBusy)
+                    var notDiscovering = !(mdnsManager && mdnsManager.isDiscovering)
+                    var hasCameraOrCanDiscover = (mdnsManager && mdnsManager.cameraFound) ||
+                                                  (configManager.txServerIp && configManager.txServerIp !== "192.168.4.1") ||
+                                                  true  // Always allow clicking to start discovery
+                    return notBusy && notDiscovering
+                }
                 onClicked: {
-                    // If we have a valid TX IP from WiFi connection, test HTTP connection
-                    // Otherwise, just mark as connected since we're using serial
-                    if (configManager) {
-                        if (configManager.txServerIp && configManager.txServerIp !== "192.168.4.1") {
-                            configManager.testConnection()
-                            if (logManager) logManager.log("Connect Camera: Testing connection to TX server...")
+                    // If camera already found via mDNS, connect via gRPC
+                    if (mdnsManager && mdnsManager.cameraFound && mdnsManager.cameraIp) {
+                        // Detect local IP for the camera's subnet
+                        var rxIp = configManager ? configManager.detectLocalIpForTarget(mdnsManager.cameraIp) : "127.0.0.1"
+                        var grpcAddress = mdnsManager.cameraIp + ":" + mdnsManager.controlPort
+                        if (logManager) logManager.logMessage("Connect Camera: Connecting to " + grpcAddress + "...")
+                        if (logManager) logManager.logMessage("Connect Camera: RX IP = " + rxIp + ", Stream port = " + mdnsManager.cameraPort)
+                        if (grpcManager) {
+                            grpcManager.serverAddress = grpcAddress
+                            // First do health check, then update host on success
+                            grpcManager.healthCheck()
+                        }
+                        if (configManager) {
+                            configManager.txServerIp = mdnsManager.cameraIp
+                            configManager.grpcServerAddress = grpcAddress
+                            configManager.rxHostIp = rxIp
+                        }
+                    }
+                    // If we have a valid TX IP from previous discovery or WiFi
+                    else if (configManager && configManager.txServerIp && configManager.txServerIp !== "192.168.4.1") {
+                        var rxIp = configManager.detectLocalIpForTarget(configManager.txServerIp)
+                        var grpcAddr = configManager.grpcServerAddress || (configManager.txServerIp + ":50051")
+                        if (logManager) logManager.logMessage("Connect Camera: Connecting to " + grpcAddr + "...")
+                        if (logManager) logManager.logMessage("Connect Camera: RX IP = " + rxIp)
+                        if (grpcManager) {
+                            grpcManager.serverAddress = grpcAddr
+                            grpcManager.healthCheck()
+                        }
+                        if (configManager) {
+                            configManager.rxHostIp = rxIp
+                        }
+                    }
+                    // Otherwise try mDNS discovery
+                    else {
+                        if (logManager) logManager.logMessage("Connect Camera: Starting mDNS discovery for _f1sh-camera._tcp...")
+                        if (mdnsManager) {
+                            mdnsManager.startDiscovery()
+                        }
+                    }
+                }
+
+                // Handle gRPC health check result - then send RX host IP
+                Connections {
+                    target: grpcManager
+                    function onHealthCheckResult(success) {
+                        if (success) {
+                            if (logManager) logManager.logMessage("Connect Camera: Health check OK, sending RX host IP...")
+                            // Now send the RX host IP to the camera
+                            var rxIp = configManager ? configManager.rxHostIp : "127.0.0.1"
+                            if (grpcManager) {
+                                grpcManager.updateHost(rxIp)
+                            }
                         } else {
-                            // No WiFi connection yet, but camera is connected via serial
-                            // This shouldn't happen if workflow is followed correctly
-                            if (logManager) logManager.log("Connect Camera: No TX server IP. Please connect to WiFi first.")
+                            if (logManager) logManager.logMessage("Connect Camera: Connection failed. Check if camera is running.")
+                        }
+                    }
+
+                    function onUpdateHostResult(success, message) {
+                        if (success) {
+                            if (logManager) logManager.logMessage("Connect Camera: Successfully configured camera to stream to this device!")
+                            // Save the settings
+                            if (configManager) {
+                                configManager.saveSettings()
+                            }
+                        } else {
+                            if (logManager) logManager.logMessage("Connect Camera: Failed to update host - " + message)
+                        }
+                    }
+                }
+
+                // Handle mDNS discovery result (for manual discovery)
+                Connections {
+                    target: mdnsManager
+                    function onDiscoveryFinished(found, ip, port) {
+                        // Only handle single camera auto-connect here
+                        // Multiple cameras are handled by the cameraSelectionDialog
+                        if (found && ip) {
+                            if (logManager) logManager.logMessage("Connect Camera: Found camera at " + ip)
+                            var rxIp = configManager ? configManager.detectLocalIpForTarget(ip) : "127.0.0.1"
+                            if (configManager) {
+                                configManager.txServerIp = ip
+                                configManager.rxHostIp = rxIp
+                            }
+                            // Auto-connect via gRPC
+                            if (grpcManager && mdnsManager) {
+                                var grpcAddress = ip + ":" + mdnsManager.controlPort
+                                grpcManager.serverAddress = grpcAddress
+                                grpcManager.healthCheck()
+                                if (configManager) {
+                                    configManager.grpcServerAddress = grpcAddress
+                                }
+                            }
+                        } else if (!found) {
+                            if (logManager) logManager.logMessage("Connect Camera: Camera not found via mDNS. Try connecting to camera WiFi network.")
                         }
                     }
                 }
@@ -619,18 +799,20 @@ Item {
                 font.pointSize: 18
                 font.bold: true
                 highlighted: true
-                // Enabled when we have a valid TX IP (from WiFi connection) and direction is saved
+                // Enabled when camera is connected (gRPC connection successful)
                 enabled: {
                     if (!configManager) return false
-                    // Enable if camera connected via HTTP test, OR if we have a valid TX IP from WiFi
+                    // Enable if camera connected via gRPC, OR if we have a valid TX IP from mDNS
                     var hasTxIp = configManager.txServerIp && configManager.txServerIp !== "192.168.4.1"
-                    var dirSaved = configManager.directionSaved
-                    return (configManager.cameraConnected || hasTxIp) && dirSaved && !configManager.isBusy
+                    var hasMdnsCamera = mdnsManager && mdnsManager.cameraFound
+                    var hasGrpcConnection = grpcManager && grpcManager.isConnected
+                    var notBusy = !configManager.isBusy && !(grpcManager && grpcManager.isBusy)
+                    return (hasGrpcConnection || hasTxIp || hasMdnsCamera) && notBusy
                 }
                 onClicked: {
                     // Open the camera display/stream view
                     mainWindow.openCameraDisplay()
-                    if (logManager) logManager.log("Opening camera stream view...")
+                    if (logManager) logManager.logMessage("Opening camera stream view...")
                 }
             }
         }

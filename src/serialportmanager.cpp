@@ -3,6 +3,7 @@
 #include <QDebug>
 #include <QSerialPort>
 #include <QSerialPortInfo>
+#include <QThread>
 
 static const QByteArray kProbeMessage = "{\"status\":1}\n";
 static const QByteArray kExpectedResponse = "{\"status\":1}";
@@ -53,25 +54,49 @@ bool SerialPortWorker::probePort(const QString &portName)
 
     LogManager::log(QString("  Successfully opened %1").arg(portName));
 
+    // Clear any pending data in the buffer
+    serial.clear();
+
+    // Small delay to let the device settle after opening
+    QThread::msleep(50);
+
+    // Drain any existing data
+    if (serial.bytesAvailable() > 0) {
+        QByteArray garbage = serial.readAll();
+        LogManager::log(QString("  Cleared %1 bytes from buffer: %2")
+            .arg(garbage.size())
+            .arg(QString::fromUtf8(garbage).trimmed().left(100)));
+    }
+
     // Send probe message
     LogManager::log(QString("  Sending probe: %1").arg(QString::fromUtf8(kProbeMessage).trimmed()));
     qint64 written = serial.write(kProbeMessage);
-    serial.flush();
-    LogManager::log(QString("  Sent %1 bytes").arg(written));
 
-    // Wait for response with timeout
-    if (!serial.waitForReadyRead(400)) {
-        LogManager::log(QString("  No response from %1 (timeout)").arg(portName));
+    // Wait for write to complete
+    if (!serial.waitForBytesWritten(1000)) {
+        LogManager::log(QString("  Failed to write to %1: %2").arg(portName, serial.errorString()));
+        serial.close();
+        return false;
+    }
+
+    LogManager::log(QString("  Sent %1 bytes, waiting for response...").arg(written));
+
+    // Wait for response with longer timeout (1.5 seconds)
+    if (!serial.waitForReadyRead(1500)) {
+        LogManager::log(QString("  No response from %1 (timeout after 1500ms)").arg(portName));
         serial.close();
         return false;
     }
 
     // Read response
     QByteArray response = serial.readAll();
+    LogManager::log(QString("  Initial read: %1 bytes").arg(response.size()));
 
     // Continue reading if more data is available
-    while (serial.waitForReadyRead(50)) {
-        response.append(serial.readAll());
+    while (serial.waitForReadyRead(100)) {
+        QByteArray more = serial.readAll();
+        response.append(more);
+        LogManager::log(QString("  Additional read: %1 bytes").arg(more.size()));
     }
 
     serial.close();
@@ -81,7 +106,13 @@ bool SerialPortWorker::probePort(const QString &portName)
         return false;
     }
 
-    LogManager::log(QString("  Received %1 bytes: %2").arg(response.size()).arg(QString::fromUtf8(response).trimmed()));
+    // Log raw bytes for debugging
+    QString hexDump;
+    for (int i = 0; i < qMin(response.size(), 64); i++) {
+        hexDump += QString("%1 ").arg((unsigned char)response[i], 2, 16, QChar('0'));
+    }
+    LogManager::log(QString("  Raw bytes: %1").arg(hexDump.trimmed()));
+    LogManager::log(QString("  Received %1 bytes: [%2]").arg(response.size()).arg(QString::fromUtf8(response).trimmed()));
 
     bool found = response.contains(kExpectedResponse);
 

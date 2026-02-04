@@ -134,6 +134,7 @@ public:
     Q_INVOKABLE void saveSettings();
     Q_INVOKABLE QString detectLocalIp();
     Q_INVOKABLE void setDirectionSaved(bool saved);
+    Q_INVOKABLE QString detectLocalIpForTarget(const QString &targetIp);
 
 signals:
     void txServerIpChanged();

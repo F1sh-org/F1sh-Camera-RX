@@ -28,6 +28,9 @@ public:
     Q_INVOKABLE void clear();
     Q_INVOKABLE void appendLog(const QString &message);
 
+    // QML-callable log method (wrapper for static log)
+    Q_INVOKABLE void logMessage(const QString &message) { log(message); }
+
 signals:
     void logTextChanged();
     void logCountChanged();

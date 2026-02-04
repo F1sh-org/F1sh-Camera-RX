@@ -91,6 +91,8 @@ private:
 
     bool m_isStreaming = false;
     bool m_gstInitialized = false;
+    bool m_firstFrameReceived = false;  // Track first frame per session
+    qint64 m_frameCount = 0;  // Total frames received
     QString m_status;
     QString m_currentDecoder;
     QString m_preferredDecoder;

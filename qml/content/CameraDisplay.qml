@@ -270,11 +270,32 @@ Item {
 
     // Component initialization
     Component.onCompleted: {
-        // Set port from config if available
-        if (configManager && streamManager) {
-            // Use configManager.rxStreamPort if available, otherwise default 8888
-            streamManager.port = 8888
-            streamManager.rotate = configManager.rotate
+        // Set port from mDNS discovery or config
+        if (streamManager) {
+            // Use mDNS discovered port, or fallback to 8888
+            var streamPort = 8888
+            if (mdnsManager && mdnsManager.cameraPort > 0) {
+                streamPort = mdnsManager.cameraPort
+            }
+            streamManager.port = streamPort
+
+            // Set rotation from config
+            if (configManager) {
+                streamManager.rotate = configManager.rotate
+            }
+
+            // Log and auto-start the stream
+            if (logManager) {
+                logManager.logMessage("CameraDisplay: Starting stream on port " + streamPort)
+            }
+            streamManager.start()
+        }
+    }
+
+    // Stop stream when leaving
+    Component.onDestruction: {
+        if (streamManager && streamManager.isStreaming) {
+            streamManager.stop()
         }
     }
 }

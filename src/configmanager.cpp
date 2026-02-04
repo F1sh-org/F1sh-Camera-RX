@@ -717,3 +717,67 @@ void ConfigManager::setDirectionSaved(bool saved)
         emit directionSavedChanged();
     }
 }
+
+QString ConfigManager::detectLocalIpForTarget(const QString &targetIp)
+{
+    // Find the local IP address that's on the same subnet as the target IP
+    // This ensures we pick the right network interface when the machine has multiple
+
+    if (targetIp.isEmpty()) {
+        return detectLocalIp();  // Fall back to default detection
+    }
+
+    QHostAddress targetAddr(targetIp);
+    if (targetAddr.isNull() || targetAddr.protocol() != QAbstractSocket::IPv4Protocol) {
+        LogManager::log(QString("Invalid target IP: %1, using default detection").arg(targetIp));
+        return detectLocalIp();
+    }
+
+    const QList<QNetworkInterface> interfaces = QNetworkInterface::allInterfaces();
+
+    for (const QNetworkInterface &iface : interfaces) {
+        // Skip loopback and down interfaces
+        if (iface.flags() & QNetworkInterface::IsLoopBack) {
+            continue;
+        }
+        if (!(iface.flags() & QNetworkInterface::IsUp)) {
+            continue;
+        }
+        if (!(iface.flags() & QNetworkInterface::IsRunning)) {
+            continue;
+        }
+
+        const QList<QNetworkAddressEntry> entries = iface.addressEntries();
+        for (const QNetworkAddressEntry &entry : entries) {
+            QHostAddress addr = entry.ip();
+
+            // Only IPv4
+            if (addr.protocol() != QAbstractSocket::IPv4Protocol) {
+                continue;
+            }
+
+            // Skip localhost
+            if (addr.isLoopback()) {
+                continue;
+            }
+
+            // Check if target IP is in the same subnet as this interface
+            QHostAddress netmask = entry.netmask();
+            if (!netmask.isNull()) {
+                quint32 localNet = addr.toIPv4Address() & netmask.toIPv4Address();
+                quint32 targetNet = targetAddr.toIPv4Address() & netmask.toIPv4Address();
+
+                if (localNet == targetNet) {
+                    QString ipStr = addr.toString();
+                    LogManager::log(QString("Detected local IP for target %1: %2 (interface: %3, netmask: %4)")
+                                   .arg(targetIp, ipStr, iface.humanReadableName(), netmask.toString()));
+                    return ipStr;
+                }
+            }
+        }
+    }
+
+    // No matching subnet found, fall back to default detection
+    LogManager::log(QString("No interface on same subnet as %1, using default detection").arg(targetIp));
+    return detectLocalIp();
+}
