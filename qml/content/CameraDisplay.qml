@@ -280,8 +280,11 @@ Item {
             streamManager.port = streamPort
 
             // Set rotation from config
+            // SwapResolution only swaps resolution dimensions (landscape/portrait),
+            // the actual video rotation must be done locally via videoflip
             if (configManager) {
                 streamManager.rotate = configManager.rotate
+                if (logManager) logManager.logMessage("CameraDisplay: Using rotation=" + configManager.rotate)
             }
 
             // Log and auto-start the stream

@@ -461,7 +461,7 @@ Item {
                 text: qsTr("+90°")
                 font.bold: true
                 font.pointSize: 20
-                enabled: serialPortManager ? serialPortManager.cameraConnected : false
+                enabled: (serialPortManager && serialPortManager.cameraConnected) || (mdnsManager && mdnsManager.cameraFound)
                 onClicked: {
                     if (configManager) {
                         var newRotate = (configManager.rotate + 1) % 4
@@ -479,7 +479,7 @@ Item {
                 text: qsTr("-90°")
                 font.bold: true
                 font.pointSize: 20
-                enabled: serialPortManager ? serialPortManager.cameraConnected : false
+                enabled: (serialPortManager && serialPortManager.cameraConnected) || (mdnsManager && mdnsManager.cameraFound)
                 onClicked: {
                     if (configManager) {
                         var newRotate = (configManager.rotate + 3) % 4  // +3 is same as -1 mod 4
@@ -497,10 +497,20 @@ Item {
                 text: qsTr("Save")
                 font.pointSize: 20
                 font.bold: true
-                enabled: serialPortManager ? serialPortManager.cameraConnected : false
+                enabled: (serialPortManager && serialPortManager.cameraConnected) || (mdnsManager && mdnsManager.cameraFound)
                 onClicked: {
                     if (configManager) {
-                        configManager.saveConfig()
+                        // If connected via serial, use serial saveConfig
+                        if (serialPortManager && serialPortManager.cameraConnected) {
+                            configManager.saveConfig()
+                        }
+                        // If connected via mDNS/gRPC, use swapResolution
+                        else if (grpcManager && mdnsManager && mdnsManager.cameraFound) {
+                            var rotate = configManager.rotate
+                            var swap = (rotate === 0 || rotate === 2) ? 1 : 0
+                            if (logManager) logManager.logMessage("Saving rotation via gRPC (swap=" + swap + ") for rotate=" + rotate)
+                            grpcManager.swapResolution(swap)
+                        }
                     }
                 }
             }
@@ -542,7 +552,7 @@ Item {
                 font.pixelSize: 40
                 font.bold: true
                 color: "#ff0000"
-                visible: serialPortManager ? !serialPortManager.cameraConnected : true
+                visible: !((serialPortManager && serialPortManager.cameraConnected) || (mdnsManager && mdnsManager.cameraFound))
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
             }
@@ -559,7 +569,7 @@ Item {
                 border.color: "#cccccc"
                 border.width: 2
                 radius: 10
-                visible: serialPortManager ? serialPortManager.cameraConnected : false
+                visible: (serialPortManager && serialPortManager.cameraConnected) || (mdnsManager && mdnsManager.cameraFound)
                 
                 // Rotation angle text
                 Text {
@@ -752,12 +762,32 @@ Item {
                     function onUpdateHostResult(success, message) {
                         if (success) {
                             if (logManager) logManager.logMessage("Connect Camera: Successfully configured camera to stream to this device!")
-                            // Save the settings
+                            // Now send the rotation/orientation via SwapResolution
+                            // swap=1 for landscape (rotate 0 or 2), swap=0 for portrait (rotate 1 or 3)
+                            if (grpcManager && configManager) {
+                                var rotate = configManager.rotate
+                                var swap = (rotate === 0 || rotate === 2) ? 1 : 0
+                                if (logManager) logManager.logMessage("Connect Camera: Sending rotation (swap=" + swap + ") for rotate=" + rotate)
+                                grpcManager.swapResolution(swap)
+                            }
+                        } else {
+                            if (logManager) logManager.logMessage("Connect Camera: Failed to update host - " + message)
+                        }
+                    }
+
+                    function onSwapResolutionResult(success, message, width, height) {
+                        if (success) {
+                            if (logManager) logManager.logMessage("Connect Camera: Rotation applied successfully! Resolution: " + width + "x" + height)
+                            // Save the settings after rotation is applied
                             if (configManager) {
                                 configManager.saveSettings()
                             }
                         } else {
-                            if (logManager) logManager.logMessage("Connect Camera: Failed to update host - " + message)
+                            if (logManager) logManager.logMessage("Connect Camera: Failed to apply rotation - " + message)
+                            // Still save settings even if rotation failed
+                            if (configManager) {
+                                configManager.saveSettings()
+                            }
                         }
                     }
                 }

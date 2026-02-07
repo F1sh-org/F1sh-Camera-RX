@@ -19,16 +19,32 @@ QStringList SerialPortWorker::listAvailablePorts()
     for (const QSerialPortInfo &info : availablePorts) {
         // Filter to USB serial ports (typically our F1sh Camera)
         // On Windows: COM ports
-        // On macOS: /dev/tty.usbserial* or /dev/tty.usbmodem*
+        // On macOS: /dev/tty.usbserial* or /dev/tty.usbmodem* or /dev/cu.usbserial* or /dev/cu.usbmodem*
         // On Linux: /dev/ttyUSB* or /dev/ttyACM*
         QString portName = info.portName();
 
 #ifdef _WIN32
         // On Windows, use the port name directly (e.g., "COM3")
         ports.append(portName);
+#elif defined(__APPLE__)
+        // On macOS, filter to only USB serial devices
+        // Exclude system ports like Bluetooth, WLAN debug, etc.
+        QString systemLocation = info.systemLocation();
+        if (portName.startsWith("tty.usbserial") ||
+            portName.startsWith("tty.usbmodem") ||
+            portName.startsWith("cu.usbserial") ||
+            portName.startsWith("cu.usbmodem") ||
+            portName.startsWith("tty.wchusbserial") ||  // CH340/CH341 USB-serial chips
+            portName.startsWith("cu.wchusbserial")) {
+            ports.append(systemLocation);
+        }
+        // Skip: tty.Bluetooth*, tty.wlan-debug, and other system ports
 #else
-        // On macOS/Linux, use the system location (full path)
-        ports.append(info.systemLocation());
+        // On Linux, use the system location (full path)
+        // Filter to USB serial devices
+        if (portName.startsWith("ttyUSB") || portName.startsWith("ttyACM")) {
+            ports.append(info.systemLocation());
+        }
 #endif
     }
 
