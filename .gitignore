@@ -2,6 +2,7 @@
 build/
 builddir/
 *.build/
+native-file.ini
 
 # Compiled binaries
 F1sh-Camera-RX
@@ -46,3 +47,4 @@ core
 
 # Log files
 *.log
+native-file.ini
