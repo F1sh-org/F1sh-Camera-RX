@@ -1,0 +1,14 @@
+# Native file for Qt6 on Windows
+
+[binaries]
+c = 'D:/Qt/Tools/mingw1310_64/bin/gcc.exe'
+cpp = 'D:/Qt/Tools/mingw1310_64/bin/g++.exe'
+ar = 'D:/Qt/Tools/mingw1310_64/bin/ar.exe'
+strip = 'D:/Qt/Tools/mingw1310_64/bin/strip.exe'
+windres = 'D:/Qt/Tools/mingw1310_64/bin/windres.exe'
+qmake6 = 'D:/Qt/6.10.1/mingw_64/bin/qmake6.exe'
+
+[built-in options]
+
+[properties]
+pkg_config_path = 'D:/Qt/6.10.1/mingw_64/lib/pkgconfig'
