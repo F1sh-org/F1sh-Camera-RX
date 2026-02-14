@@ -4,6 +4,9 @@
 #include <QQmlContext>
 #include <QDebug>
 #include <iostream>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #include "serialportmanager.h"
 #include "wifimanager.h"
 #include "configmanager.h"

@@ -76,5 +76,16 @@ executable('f1sh-camera-rx',
   sources + processed + qml_resources + [proto_gen, grpc_gen],
   dependencies: [qt6_dep, gstreamer_dep, gst_video_dep, gst_app_dep, protobuf_dep, grpc_dep, wlanapi, iphlpapi, winhttp],
   win_subsystem: 'windows',
-  include_directories: [include_directories('.'), include_directories('builddir')]
+  include_directories: [include_directories('.'), include_directories('builddir')],
+  install: true
 )
+
+if host_machine.system() == 'windows'
+  install_data('run-portable.cmd', install_dir: '.')
+
+  python = find_program('python3', 'python', required: true)
+  meson.add_install_script(
+    python,
+    meson.project_source_root() / 'scripts/windows/meson-post-install.py'
+  )
+endif

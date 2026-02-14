@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
-    [string]$BuildDir = (Join-Path $PSScriptRoot '..\..\builddir'),
-    [string]$DestDir = (Join-Path $PSScriptRoot '..\..\dist\F1sh-Camera-RX'),
+    [string]$BuildDir,
+    [string]$DestDir,
     [string]$MsysRoot = $env:MSYS2_ROOT,
     [switch]$SkipBuild,
     [switch]$SkipConfigure
@@ -11,6 +11,14 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+
+if (-not $BuildDir) {
+    $BuildDir = Join-Path $repoRoot 'builddir'
+}
+if (-not $DestDir) {
+    $DestDir = Join-Path $repoRoot 'dist\F1sh-Camera-RX'
+}
+
 $BuildDir = [System.IO.Path]::GetFullPath($BuildDir)
 $DestDir = [System.IO.Path]::GetFullPath($DestDir)
 
@@ -34,7 +42,13 @@ $nativeFile = Join-Path $repoRoot 'native-file.ini'
 
 function Invoke-MesonSetup {
     Write-Host "==> Configuring Meson build"
-    & meson setup $BuildDir $repoRoot --native-file $nativeFile --prefix="$DestDir"
+
+    $setupArgs = @('setup', $BuildDir, $repoRoot, "--prefix=$DestDir")
+    if (Test-Path $nativeFile) {
+        $setupArgs += @('--native-file', $nativeFile)
+    }
+
+    & meson @setupArgs
     if ($LASTEXITCODE -ne 0) {
         throw "Meson setup failed"
     }
@@ -79,7 +93,7 @@ if (Test-Path $DestDir) {
 
 # Install (this triggers the post-install script)
 Write-Host "==> Installing and packaging"
-& meson install -C $BuildDir --no-rebuild
+& meson install -C $BuildDir
 if ($LASTEXITCODE -ne 0) {
     throw "Meson install failed"
 }

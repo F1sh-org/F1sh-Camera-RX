@@ -33,9 +33,12 @@ On Windows, use MSYS2:
    pacman -S mingw-w64-ucrt-x86_64-gst-plugins-good
    pacman -S mingw-w64-ucrt-x86_64-gst-plugins-bad
    pacman -S mingw-w64-ucrt-x86_64-jansson
+   pacman -S mingw-w64-ucrt-x86_64-protobuf
+   pacman -S mingw-w64-ucrt-x86_64-grpc
    pacman -S mingw-w64-ucrt-x86_64-meson
    pacman -S mingw-w64-ucrt-x86_64-cmake
    ```
+   If Meson reports `Dependency "grpc++" not found`, re-check the gRPC package above and run `meson setup builddir` again.
 
 3. **Build the project**:
    ```bash
