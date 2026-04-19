@@ -3,6 +3,7 @@ param(
     [string]$BuildDir,
     [string]$PortableOutput,
     [string]$InstallerOutput,
+    [string]$MsysRoot = $env:MSYS2_ROOT,
     [string]$InnoSetup = $(if (Test-Path "${env:ProgramFiles(x86)}") { Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe' } else { Join-Path ${env:ProgramFiles} 'Inno Setup 6\ISCC.exe' }),
     [switch]$SkipBuild
 )
@@ -33,7 +34,7 @@ if (-not (Test-Path $portableScript)) {
 
 # Build portable bundle using new Meson-based script
 Write-Host '==> Creating portable bundle (Meson-based)'
-& $portableScript -BuildDir $BuildDir -DestDir $PortableOutput -SkipBuild:$SkipBuild
+& $portableScript -BuildDir $BuildDir -DestDir $PortableOutput -MsysRoot $MsysRoot -SkipBuild:$SkipBuild
 
 if ($LASTEXITCODE -ne 0) {
     throw 'Portable packaging failed.'
