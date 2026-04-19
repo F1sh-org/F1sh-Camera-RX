@@ -28,6 +28,8 @@ On Windows, use MSYS2:
 2. **Install dependencies** in MSYS2 UCRT64 terminal:
    ```bash
    pacman -S mingw-w64-ucrt-x86_64-qt6-base
+   pacman -S mingw-w64-ucrt-x86_64-qt6-declarative
+   pacman -S mingw-w64-ucrt-x86_64-qt6-serialport
    pacman -S mingw-w64-ucrt-x86_64-gstreamer
    pacman -S mingw-w64-ucrt-x86_64-gst-plugins-base
    pacman -S mingw-w64-ucrt-x86_64-gst-plugins-good
@@ -45,6 +47,7 @@ On Windows, use MSYS2:
    meson setup builddir
    meson compile -C builddir
    ```
+   Note: append `--native-file native-file.ini` on `meson setup` if you are on Windows. You also need Qt6 installed and pointed accordingly on the sample file.
 
 4. **Run with correct DLLs on PATH**:
   - Launch from the same UCRT64 shell you built with, so PATH includes MSYS2 DLLs.
