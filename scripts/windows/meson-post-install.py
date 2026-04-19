@@ -210,7 +210,6 @@ def deploy_qt_runtime(destdir, ucrt64_root, exe_path):
         '--no-compiler-runtime',
         '--no-system-d3d-compiler',
         '--no-opengl-sw',
-        '--no-quick-import',
         '--skip-plugin-types', 'qmltooling',
         '--qmldir', qml_dir,
         '--dir', str(destdir),
