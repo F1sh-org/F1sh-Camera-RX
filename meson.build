@@ -1,81 +1,91 @@
-project(
-  'f1sh-camera-rx',
-  'c',
-  version : '1.0.0',
-  default_options : [
-    'warning_level=3',
-    'werror=false',
-    'c_std=c11'
-  ]
+project('f1sh-camera-rx', 'cpp', 'c',
+  version: '2.0.0',
+  default_options: ['cpp_std=c++17', 'warning_level=2'])
+
+qt6 = import('qt6')
+qt6_dep = dependency('qt6', modules: ['Core', 'Gui', 'Widgets', 'Qml', 'Quick', 'QuickControls2', 'Network', 'SerialPort'])
+
+# GStreamer dependencies
+gstreamer_dep = dependency('gstreamer-1.0', required: true)
+gst_video_dep = dependency('gstreamer-video-1.0', required: true)
+gst_app_dep = dependency('gstreamer-app-1.0', required: true)
+
+# gRPC and Protobuf dependencies
+protobuf_dep = dependency('protobuf', required: true)
+grpc_dep = dependency('grpc++', required: true)
+
+# Find protoc and grpc_cpp_plugin
+protoc = find_program('protoc', required: true)
+grpc_cpp_plugin = find_program('grpc_cpp_plugin', required: true)
+
+# Generate protobuf and gRPC sources
+proto_file = files('proto/f1sh_camera.proto')
+
+# Custom target for protobuf generation
+proto_gen = custom_target('proto_gen',
+  input: proto_file,
+  output: ['f1sh_camera.pb.cc', 'f1sh_camera.pb.h'],
+  command: [protoc,
+    '--proto_path=@CURRENT_SOURCE_DIR@/proto',
+    '--cpp_out=@OUTDIR@',
+    '@INPUT@'],
+  depend_files: proto_file
 )
 
-# Dependencies
-gtk_dep = dependency('gtk+-3.0')
-gstreamer_dep = dependency('gstreamer-1.0')
-gstreamer_video_dep = dependency('gstreamer-video-1.0')
-threads_dep = dependency('threads')
-libcurl_dep = dependency('libcurl')
-json_dep = dependency('jansson')
-microhttpd_dep = dependency('libmicrohttpd')
+# Custom target for gRPC generation
+grpc_gen = custom_target('grpc_gen',
+  input: proto_file,
+  output: ['f1sh_camera.grpc.pb.cc', 'f1sh_camera.grpc.pb.h'],
+  command: [protoc,
+    '--proto_path=@CURRENT_SOURCE_DIR@/proto',
+    '--grpc_out=@OUTDIR@',
+    '--plugin=protoc-gen-grpc=' + grpc_cpp_plugin.full_path(),
+    '@INPUT@'],
+  depend_files: proto_file
+)
 
-# Source files
+# Process Qt MOC files
+processed = qt6.preprocess(
+  moc_headers: ['src/serialportmanager.h', 'src/wifimanager.h', 'src/configmanager.h', 'src/logmanager.h', 'src/streammanager.h', 'src/grpcmanager.h', 'src/mdnsmanager.h'],
+  dependencies: qt6_dep
+)
+
+# Compile QML resources
+qml_resources = qt6.compile_resources(
+  sources: 'qml.qrc'
+)
+
+# Windows libraries for WiFi and HTTP
+cpp = meson.get_compiler('cpp')
+wlanapi = cpp.find_library('wlanapi', required: false)
+iphlpapi = cpp.find_library('iphlpapi', required: false)
+winhttp = cpp.find_library('winhttp', required: false)
+
 sources = [
-  'src/main.c',
-  'src/http_client.c',
-  'src/http_server.c',
-  'src/ui_main.c',
-  'src/ui_login.c',
-  'src/ui_configuration.c',
-  'src/ui_log.c',
-  'src/ui_rotate.c',
-  'src/ui_wifi.c',
-  'src/wifi_info.c',
-  'src/serial_probe.c',
-  'src/stream.c'
+  'src/main_qml.cpp',
+  'src/serialportmanager.cpp',
+  'src/wifimanager.cpp',
+  'src/configmanager.cpp',
+  'src/logmanager.cpp',
+  'src/streammanager.cpp',
+  'src/grpcmanager.cpp',
+  'src/mdnsmanager.cpp',
 ]
 
-# Executable
+executable('f1sh-camera-rx',
+  sources + processed + qml_resources + [proto_gen, grpc_gen],
+  dependencies: [qt6_dep, gstreamer_dep, gst_video_dep, gst_app_dep, protobuf_dep, grpc_dep, wlanapi, iphlpapi, winhttp],
+  win_subsystem: 'windows',
+  include_directories: [include_directories('.'), include_directories('builddir')],
+  install: true
+)
+
 if host_machine.system() == 'windows'
-  executable(
-    'f1sh-camera-rx',
-    sources,
-    dependencies : [
-      gtk_dep,
-      gstreamer_dep,
-      gstreamer_video_dep,
-      libcurl_dep,
-      json_dep,
-      microhttpd_dep,
-      threads_dep
-    ],
-    win_subsystem : 'windows',
-    link_args : [ '-lwlanapi', '-liphlpapi' ],
-    install : true
-  )
+  install_data('run-portable.cmd', install_dir: '.')
 
-  # Install portable launcher script into prefix root
-  install_data('run-portable.cmd', install_dir : get_option('prefix'))
-
-  # Post-install script for dependency bundling
-  python = find_program('python3', 'python', required : true)
+  python = find_program('python3', 'python', required: true)
   meson.add_install_script(
     python,
-    meson.project_source_root() / 'scripts' / 'windows' / 'meson-post-install.py',
-    meson.global_build_root() / '..' / get_option('prefix')
-  )
-else
-  executable(
-    'f1sh-camera-rx',
-    sources,
-    dependencies : [
-      gtk_dep,
-      gstreamer_dep,
-      gstreamer_video_dep,
-      libcurl_dep,
-      json_dep,
-      microhttpd_dep,
-      threads_dep
-    ],
-    install : true
+    meson.project_source_root() / 'scripts/windows/meson-post-install.py'
   )
 endif

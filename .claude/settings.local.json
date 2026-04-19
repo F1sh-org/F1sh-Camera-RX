@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(powershell:*)",
+      "Bash(meson compile:*)",
+      "WebFetch(domain:f1sh.gitbook.io)",
+      "Bash(meson setup:*)",
+      "Bash(gst-launch-1.0 --version:*)",
+      "Bash(gst-inspect-1.0:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(brew info:*)",
+      "Bash(brew install:*)"
+    ]
+  }
+}

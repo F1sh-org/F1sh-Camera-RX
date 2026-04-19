@@ -8,7 +8,6 @@ import os
 import sys
 import shutil
 import subprocess
-import json
 from pathlib import Path
 
 def print_step(msg):
@@ -98,37 +97,36 @@ def copy_gstreamer_plugins(dest_plugin_dir, ucrt64_root, ntldd_exe, copied_dlls,
     if not os.path.isdir(source_plugin_dir):
         raise RuntimeError(f"GStreamer plugin directory not found: {source_plugin_dir}")
 
-    # Required plugins for the application (based on stream.c analysis)
+    # Required plugins for the current Qt6/QML StreamManager pipeline.
+    # Keep this list aligned with src/streammanager.cpp decoder candidates.
     required_plugins = {
-        # Core elements (always needed)
+        # Core elements
         'libgstcoreelements.dll',       # queue, capsfilter
 
-        # RTP/UDP streaming (gst-plugins-good)
+        # RTP/UDP streaming
         'libgstudp.dll',                # udpsrc
         'libgstrtp.dll',                # rtph264depay
         'libgstrtpmanager.dll',         # RTP session management
 
-        # Video parsing (gst-plugins-bad)
+        # H.264 parsing
         'libgstvideoparsersbad.dll',    # h264parse
 
-        # Windows Direct3D 11 (gst-plugins-bad)
-        'libgstd3d11.dll',              # d3d11h264dec, d3d11videosink, d3d11convert, d3d11download
+        # Hardware decode / download paths used on Windows
+        'libgstd3d11.dll',              # d3d11h264dec, d3d11download
+        'libgstd3d12.dll',              # d3d12h264dec, d3d12download
+        'libgstqsv.dll',                # qsvh264dec
+        'libgstnvcodec.dll',            # nvh264dec
 
-        # Video processing (gst-plugins-base and good)
+        # Software decoder fallbacks
+        'libgstlibav.dll',              # avdec_h264
+        'libgstopenh264.dll',           # openh264dec
+
+        # Video processing
         'libgstvideoconvertscale.dll',  # videoconvert, videoscale
         'libgstvideofilter.dll',        # videoflip
 
-        # Auto elements (gst-plugins-base)
-        'libgstautodetect.dll',         # autovideosink (fallback)
-
-        # Playback elements (gst-plugins-base)
-        'libgstplayback.dll',           # playbin (might be useful)
-
         # Type finding
-        'libgsttypefindfunctions.dll',  # Type detection
-
-        # Fallback software decoder (gst-libav)
-        'libgstlibav.dll',              # avdec_h264
+        'libgsttypefindfunctions.dll',
     }
 
     print_step(f"Copying {len(required_plugins)} required GStreamer plugins")
@@ -149,11 +147,11 @@ def copy_gstreamer_plugins(dest_plugin_dir, ucrt64_root, ntldd_exe, copied_dlls,
 
     print(f"  Copied {copied_count}/{len(required_plugins)} plugins")
 
-def copy_gtk_assets(dest_share_dir, dest_lib_dir, dest_etc_dir, ucrt64_root):
-    """Copy GTK runtime assets (themes, icons, schemas)."""
-    print_step("Copying GTK assets")
+def copy_runtime_assets(dest_share_dir, dest_etc_dir, ucrt64_root):
+    """Copy runtime assets used by this Qt6/GStreamer app."""
+    print_step("Copying runtime assets")
 
-    # GLib schemas (required)
+    # GLib schemas (used by GStreamer stack)
     schema_src = os.path.join(ucrt64_root, 'share', 'glib-2.0', 'schemas')
     schema_dest = os.path.join(dest_share_dir, 'glib-2.0', 'schemas')
     os.makedirs(schema_dest, exist_ok=True)
@@ -161,59 +159,12 @@ def copy_gtk_assets(dest_share_dir, dest_lib_dir, dest_etc_dir, ucrt64_root):
         shutil.copytree(schema_src, schema_dest, dirs_exist_ok=True)
         print("  + GLib schemas")
 
-    # Adwaita icon theme (optional but recommended)
-    icon_src = os.path.join(ucrt64_root, 'share', 'icons', 'Adwaita')
-    icon_dest = os.path.join(dest_share_dir, 'icons', 'Adwaita')
-    if os.path.isdir(icon_src):
-        shutil.copytree(icon_src, icon_dest, dirs_exist_ok=True)
-        print("  + Adwaita icons")
-
-    # GTK themes (optional)
-    theme_src = os.path.join(ucrt64_root, 'share', 'themes', 'Adwaita')
-    theme_dest = os.path.join(dest_share_dir, 'themes', 'Adwaita')
-    if os.path.isdir(theme_src):
-        shutil.copytree(theme_src, theme_dest, dirs_exist_ok=True)
-        print("  + Adwaita theme")
-
     # GStreamer presets
     gst_share_src = os.path.join(ucrt64_root, 'share', 'gstreamer-1.0')
     gst_share_dest = os.path.join(dest_share_dir, 'gstreamer-1.0')
     if os.path.isdir(gst_share_src):
         shutil.copytree(gst_share_src, gst_share_dest, dirs_exist_ok=True)
         print("  + GStreamer presets")
-
-    # GTK runtime libraries
-    gtk3_src = os.path.join(ucrt64_root, 'lib', 'gtk-3.0')
-    gtk3_dest = os.path.join(dest_lib_dir, 'gtk-3.0')
-    if os.path.isdir(gtk3_src):
-        shutil.copytree(gtk3_src, gtk3_dest, dirs_exist_ok=True)
-        print("  + GTK 3.0 modules")
-
-    # GIO modules
-    gio_src = os.path.join(ucrt64_root, 'lib', 'gio', 'modules')
-    gio_dest = os.path.join(dest_lib_dir, 'gio', 'modules')
-    os.makedirs(gio_dest, exist_ok=True)
-    if os.path.isdir(gio_src):
-        for item in os.listdir(gio_src):
-            shutil.copy2(os.path.join(gio_src, item), os.path.join(gio_dest, item))
-        print("  + GIO modules")
-
-    # GDK Pixbuf loaders
-    pixbuf_src = os.path.join(ucrt64_root, 'lib', 'gdk-pixbuf-2.0', '2.10.0', 'loaders')
-    pixbuf_dest = os.path.join(dest_lib_dir, 'gdk-pixbuf-2.0', '2.10.0', 'loaders')
-    os.makedirs(pixbuf_dest, exist_ok=True)
-    if os.path.isdir(pixbuf_src):
-        for item in os.listdir(pixbuf_src):
-            shutil.copy2(os.path.join(pixbuf_src, item), os.path.join(pixbuf_dest, item))
-        print("  + GDK Pixbuf loaders")
-
-    # Optional config directories
-    for subdir in ['gtk-3.0', 'fonts', 'pango']:
-        etc_src = os.path.join(ucrt64_root, 'etc', subdir)
-        etc_dest = os.path.join(dest_etc_dir, subdir)
-        if os.path.isdir(etc_src):
-            shutil.copytree(etc_src, etc_dest, dirs_exist_ok=True)
-            print(f"  + {subdir} config")
 
     # SSL certificates
     ca_bundle_src = os.path.join(ucrt64_root, 'ssl', 'certs', 'ca-bundle.crt')
@@ -223,49 +174,65 @@ def copy_gtk_assets(dest_share_dir, dest_lib_dir, dest_etc_dir, ucrt64_root):
         shutil.copy2(ca_bundle_src, ca_bundle_dest)
         print("  + SSL certificates")
 
-def compile_schemas_and_caches(dest_dir, ucrt64_root):
-    """Compile GLib schemas and regenerate loader caches."""
-    print_step("Compiling schemas and caches")
+def compile_schemas(dest_dir, ucrt64_root):
+    """Compile GLib schemas used by the runtime."""
+    print_step("Compiling GLib schemas")
 
-    # Compile GLib schemas
     glib_compile = os.path.join(ucrt64_root, 'bin', 'glib-compile-schemas.exe')
     schema_dir = os.path.join(dest_dir, 'share', 'glib-2.0', 'schemas')
     if os.path.exists(glib_compile) and os.path.isdir(schema_dir):
         subprocess.run([glib_compile, schema_dir], check=True)
         print("  Compiled GLib schemas")
 
-    # Query GIO modules
-    gio_query = os.path.join(ucrt64_root, 'bin', 'gio-querymodules.exe')
-    gio_dir = os.path.join(dest_dir, 'lib', 'gio', 'modules')
-    if os.path.exists(gio_query) and os.path.isdir(gio_dir):
-        subprocess.run([gio_query, gio_dir], check=True, stdout=subprocess.DEVNULL)
-        print("  Queried GIO modules")
+def deploy_qt_runtime(destdir, ucrt64_root, exe_path):
+    """Deploy Qt runtime, plugins and QML imports with windeployqt."""
+    qt_bin = os.path.join(ucrt64_root, 'bin')
+    qt_tools_bin = os.path.join(ucrt64_root, 'share', 'qt6', 'bin')
+    windeployqt = os.path.join(qt_bin, 'windeployqt6.exe')
 
-    # Query GDK Pixbuf loaders
-    pixbuf_query = os.path.join(ucrt64_root, 'bin', 'gdk-pixbuf-query-loaders.exe')
-    pixbuf_dir = os.path.join(dest_dir, 'lib', 'gdk-pixbuf-2.0', '2.10.0', 'loaders')
-    if os.path.exists(pixbuf_query) and os.path.isdir(pixbuf_dir):
-        env = os.environ.copy()
-        env['GDK_PIXBUF_MODULEDIR'] = pixbuf_dir
-        result = subprocess.run(
-            [pixbuf_query],
-            capture_output=True,
-            text=True,
-            env=env,
-            check=True
+    if not os.path.exists(windeployqt):
+        raise RuntimeError(
+            f"windeployqt6.exe not found at {windeployqt}. "
+            "Install: pacman -S mingw-w64-ucrt-x86_64-qt6-base mingw-w64-ucrt-x86_64-qt6-declarative"
         )
-        cache_file = os.path.join(dest_dir, 'lib', 'gdk-pixbuf-2.0', '2.10.0', 'loaders.cache')
-        with open(cache_file, 'w', encoding='utf-8') as f:
-            f.write(result.stdout)
-        print("  Generated Pixbuf loader cache")
+
+    env = os.environ.copy()
+    env['PATH'] = os.pathsep.join([qt_tools_bin, qt_bin, env.get('PATH', '')])
+
+    qml_dir = str(Path(__file__).resolve().parents[2] / 'qml')
+
+    print_step("Deploying Qt runtime with windeployqt")
+    subprocess.run([
+        windeployqt,
+        '--release',
+        '--force',
+        '--no-translations',
+        '--no-compiler-runtime',
+        '--no-system-d3d-compiler',
+        '--no-opengl-sw',
+        '--no-quick-import',
+        '--skip-plugin-types', 'qmltooling',
+        '--qmldir', qml_dir,
+        '--dir', str(destdir),
+        str(exe_path),
+    ], check=True, env=env)
+
 
 def main():
     """Main packaging function."""
-    if len(sys.argv) < 2:
-        print("Usage: meson-post-install.py <install-destdir>")
-        sys.exit(1)
+    destdir_env = os.environ.get('MESON_INSTALL_DESTDIR_PREFIX')
+    prefix_env = os.environ.get('MESON_INSTALL_PREFIX')
 
-    destdir = Path(sys.argv[1]).resolve()
+    if destdir_env:
+        destdir = Path(destdir_env).resolve()
+    elif len(sys.argv) >= 2:
+        # Compatibility with direct/manual invocation
+        destdir = Path(sys.argv[1]).resolve()
+    else:
+        if not prefix_env:
+            print("Usage: meson-post-install.py <install-destdir>")
+            sys.exit(1)
+        destdir = Path(prefix_env).resolve()
 
     print_step(f"Starting Windows packaging for: {destdir}")
 
@@ -301,6 +268,9 @@ def main():
     if not exe_path.exists():
         raise RuntimeError(f"Executable not found: {exe_path}")
 
+    # Deploy Qt runtime/plugins/qml first
+    deploy_qt_runtime(destdir, ucrt64_root, exe_path)
+
     # Copy main executable dependencies
     print_step("Copying main executable dependencies")
     copy_dll_dependencies(str(exe_path), str(dest_bin), ucrt64_root, ntldd_exe, copied_dlls)
@@ -308,8 +278,8 @@ def main():
     # Copy GStreamer plugins (selective)
     copy_gstreamer_plugins(str(dest_plugin), ucrt64_root, ntldd_exe, copied_dlls, str(dest_bin))
 
-    # Copy GTK assets
-    copy_gtk_assets(str(dest_share), str(dest_lib), str(dest_etc), ucrt64_root)
+    # Copy runtime assets
+    copy_runtime_assets(str(dest_share), str(dest_etc), ucrt64_root)
 
     # Copy GStreamer plugin scanner
     scanner_src = os.path.join(ucrt64_root, 'libexec', 'gstreamer-1.0', 'gst-plugin-scanner.exe')
@@ -318,8 +288,8 @@ def main():
         shutil.copy2(scanner_src, str(scanner_dest))
         print_step("Copied GStreamer plugin scanner")
 
-    # Compile schemas and caches
-    compile_schemas_and_caches(str(destdir), ucrt64_root)
+    # Compile schemas
+    compile_schemas(str(destdir), ucrt64_root)
 
     print_step("Packaging complete!")
     print(f"Portable bundle ready at: {destdir}")

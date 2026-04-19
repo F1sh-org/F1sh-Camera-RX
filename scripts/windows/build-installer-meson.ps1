@@ -1,8 +1,8 @@
 [CmdletBinding()]
 param(
-    [string]$BuildDir = (Join-Path $PSScriptRoot '..\..\builddir'),
-    [string]$PortableOutput = (Join-Path $PSScriptRoot '..\..\dist\F1sh-Camera-RX'),
-    [string]$InstallerOutput = (Join-Path $PSScriptRoot '..\..\dist\installer'),
+    [string]$BuildDir,
+    [string]$PortableOutput,
+    [string]$InstallerOutput,
     [string]$InnoSetup = $(if (Test-Path "${env:ProgramFiles(x86)}") { Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe' } else { Join-Path ${env:ProgramFiles} 'Inno Setup 6\ISCC.exe' }),
     [switch]$SkipBuild
 )
@@ -12,6 +12,17 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $portableScript = Join-Path $PSScriptRoot 'build-portable-meson.ps1'
+
+if (-not $BuildDir) {
+    $BuildDir = Join-Path $repoRoot 'builddir'
+}
+if (-not $PortableOutput) {
+    $PortableOutput = Join-Path $repoRoot 'dist\F1sh-Camera-RX'
+}
+if (-not $InstallerOutput) {
+    $InstallerOutput = Join-Path $repoRoot 'dist\installer'
+}
+
 $BuildDir = [System.IO.Path]::GetFullPath($BuildDir)
 $PortableOutput = [System.IO.Path]::GetFullPath($PortableOutput)
 $InstallerOutput = [System.IO.Path]::GetFullPath($InstallerOutput)

@@ -1,0 +1,30 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/">
+        <!-- Main QML entry -->
+        <file>qml/main.qml</file>
+        
+        <!-- UntitledProject module -->
+        <file>qml/UntitledProject/qmldir</file>
+        <file>qml/UntitledProject/Constants.qml</file>
+        <file>qml/UntitledProject/EventListModel.qml</file>
+        <file>qml/UntitledProject/EventListSimulator.qml</file>
+        
+        <!-- Content QML files -->
+        <file>qml/content/qmldir</file>
+        <file>qml/content/App.qml</file>
+        <file>qml/content/Screen01.ui.qml</file>
+        <file>qml/content/CameraDisplay.qml</file>
+        <file>qml/content/Settings.qml</file>
+        <file>qml/content/Start.qml</file>
+        <file>qml/content/Wifi_pass.ui.qml</file>
+        <file>qml/content/Log.qml</file>
+        
+        <!-- Assets -->
+        <file>qml/assets/1764717324865-1688492344211912770c7a1fb613e0a56ae183550b0d15104ace41.png</file>
+        <file>qml/assets/asset-v1_STEAMforVietnam+Scratch101+2020_08+type@asset+block@course_card__1_.png</file>
+        <file>qml/assets/exit.png</file>
+        <file>qml/assets/logging.png</file>
+        <file>qml/assets/setting.png</file>
+    </qresource>
+</RCC>
