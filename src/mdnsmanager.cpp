@@ -3,6 +3,12 @@
 #include <QDebug>
 #include <QRegularExpression>
 #include <QHostInfo>
+#ifdef Q_OS_WIN
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+#include <windns.h>
+#endif
 
 const QString MdnsManager::kServiceType = "_f1sh-camera._tcp";
 
@@ -45,8 +51,13 @@ void MdnsManager::startDiscovery()
 
     // Use platform-specific mDNS browse command
 #ifdef Q_OS_WIN
-    // Windows: use dns-sd.exe (comes with Bonjour)
-    m_process->start("dns-sd", QStringList() << "-Z" << "_f1sh-camera._tcp" << "local");
+    if (discoverWindowsNative()) {
+        finalizeDiscoveryResults();
+        return;
+    }
+    setIsDiscovering(false);
+    emit discoveryFinished(false, QString(), 0);
+    return;
 #elif defined(Q_OS_MACOS)
     // macOS: use dns-sd -Z to get full zone info including TXT records
     m_process->start("dns-sd", QStringList() << "-Z" << "_f1sh-camera._tcp" << "local");
@@ -121,20 +132,7 @@ void MdnsManager::onProcessFinished(int exitCode, QProcess::ExitStatus exitStatu
 
     m_timeoutTimer->stop();
     setIsDiscovering(false);
-
-    // Handle results
-    if (m_cameras.size() == 1) {
-        // Single camera - auto-select it
-        applyCamera(m_cameras.first());
-        emit discoveryFinished(true, m_cameraIp, m_cameraPort);
-    } else if (m_cameras.size() > 1) {
-        // Multiple cameras - emit signal for UI to show selection dialog
-        LogManager::log(QString("Found %1 cameras - user selection required").arg(m_cameras.size()));
-        emit multipleCamerasFound();
-        emit discoveryFinished(true, QString(), 0);
-    } else {
-        emit discoveryFinished(false, QString(), 0);
-    }
+    finalizeDiscoveryResults();
 }
 
 void MdnsManager::onProcessError(QProcess::ProcessError error)
@@ -173,19 +171,7 @@ void MdnsManager::onDiscoveryTimeout()
     }
 
     stopDiscovery();
-
-    // Handle results
-    if (m_cameras.size() == 1) {
-        applyCamera(m_cameras.first());
-        emit discoveryFinished(true, m_cameraIp, m_cameraPort);
-    } else if (m_cameras.size() > 1) {
-        LogManager::log(QString("Found %1 cameras - user selection required").arg(m_cameras.size()));
-        emit multipleCamerasFound();
-        emit discoveryFinished(true, QString(), 0);
-    } else {
-        LogManager::log("No camera found via mDNS");
-        emit discoveryFinished(false, QString(), 0);
-    }
+    finalizeDiscoveryResults();
 }
 
 void MdnsManager::parseTxtRecord(const QString &txt, CameraInfo &info)
@@ -208,6 +194,160 @@ void MdnsManager::parseTxtRecord(const QString &txt, CameraInfo &info)
         }
     }
 }
+
+void MdnsManager::finalizeDiscoveryResults()
+{
+    if (m_cameras.size() == 1) {
+        applyCamera(m_cameras.first());
+        emit discoveryFinished(true, m_cameraIp, m_cameraPort);
+        return;
+    }
+
+    if (m_cameras.size() > 1) {
+        LogManager::log(QString("Found %1 cameras - user selection required").arg(m_cameras.size()));
+        emit multipleCamerasFound();
+        emit discoveryFinished(true, QString(), 0);
+        return;
+    }
+
+    LogManager::log("No camera found via mDNS");
+    emit discoveryFinished(false, QString(), 0);
+}
+
+#ifdef Q_OS_WIN
+bool MdnsManager::discoverWindowsNative()
+{
+    DNS_RECORD* browseResults = nullptr;
+    DNS_STATUS browseStatus = DnsQuery_A(
+        "_f1sh-camera._tcp.local",
+        DNS_TYPE_PTR,
+        DNS_QUERY_MULTICAST_ONLY,
+        nullptr,
+        &browseResults,
+        nullptr);
+
+    if (browseStatus != ERROR_SUCCESS) {
+        LogManager::log(QString("Windows mDNS browse failed: %1").arg(static_cast<int>(browseStatus)));
+        return false;
+    }
+
+    QMap<QString, CameraInfo> cameraMap;
+
+    for (DNS_RECORD* rec = browseResults; rec; rec = rec->pNext) {
+        if (rec->wType != DNS_TYPE_PTR || rec->Data.PTR.pNameHost == nullptr) {
+            continue;
+        }
+
+        QString fullInstance = QString::fromLatin1(rec->Data.PTR.pNameHost).trimmed();
+        if (fullInstance.endsWith('.')) {
+            fullInstance.chop(1);
+        }
+
+        const QString suffix = "." + kServiceType + ".local";
+        QString name = fullInstance;
+        if (name.endsWith(suffix, Qt::CaseInsensitive)) {
+            name.chop(suffix.size());
+        }
+
+        if (name.isEmpty()) {
+            continue;
+        }
+
+        CameraInfo info;
+        info.name = name;
+        cameraMap[name] = info;
+        LogManager::log(QString("Found camera service: %1").arg(name));
+    }
+
+    DnsRecordListFree(browseResults, DnsFreeRecordList);
+
+    for (auto it = cameraMap.begin(); it != cameraMap.end(); ++it) {
+        QString instanceFqdn = QString("%1.%2.local").arg(it.key(), kServiceType);
+        DNS_RECORD* serviceResults = nullptr;
+        QByteArray instanceFqdnBytes = instanceFqdn.toLatin1();
+        DNS_STATUS serviceStatus = DnsQuery_A(
+            instanceFqdnBytes.constData(),
+            DNS_TYPE_ANY,
+            DNS_QUERY_MULTICAST_ONLY,
+            nullptr,
+            &serviceResults,
+            nullptr);
+
+        if (serviceStatus != ERROR_SUCCESS) {
+            continue;
+        }
+
+        for (DNS_RECORD* rec = serviceResults; rec; rec = rec->pNext) {
+            if (rec->wType == DNS_TYPE_SRV && rec->Data.SRV.pNameTarget != nullptr) {
+                it->port = static_cast<int>(rec->Data.SRV.wPort);
+                it->hostname = QString::fromLatin1(rec->Data.SRV.pNameTarget);
+                if (it->hostname.endsWith('.')) {
+                    it->hostname.chop(1);
+                }
+            } else if (rec->wType == DNS_TYPE_TEXT && rec->Data.TXT.dwStringCount > 0) {
+                QStringList txtEntries;
+                for (DWORD i = 0; i < rec->Data.TXT.dwStringCount; ++i) {
+                    if (rec->Data.TXT.pStringArray[i] != nullptr) {
+                        txtEntries << QString::fromLatin1(rec->Data.TXT.pStringArray[i]);
+                    }
+                }
+                parseTxtRecord(txtEntries.join(' '), *it);
+            }
+        }
+
+        DnsRecordListFree(serviceResults, DnsFreeRecordList);
+
+        if (!it->hostname.isEmpty()) {
+            DNS_RECORD* hostResults = nullptr;
+            QByteArray hostnameBytes = it->hostname.toLatin1();
+            DNS_STATUS hostStatus = DnsQuery_A(
+                hostnameBytes.constData(),
+                DNS_TYPE_A,
+                DNS_QUERY_MULTICAST_ONLY,
+                nullptr,
+                &hostResults,
+                nullptr);
+
+            if (hostStatus == ERROR_SUCCESS) {
+                for (DNS_RECORD* rec = hostResults; rec; rec = rec->pNext) {
+                    if (rec->wType == DNS_TYPE_A) {
+                        IN_ADDR addr;
+                        addr.S_un.S_addr = rec->Data.A.IpAddress;
+                        QString ip = QString::fromLatin1(inet_ntoa(addr));
+                        if (!ip.isEmpty()) {
+                            it->ip = ip;
+                            break;
+                        }
+                    }
+                }
+                DnsRecordListFree(hostResults, DnsFreeRecordList);
+            }
+        }
+
+        if (it->ip.isEmpty() && !it->hostname.isEmpty()) {
+            QHostInfo hostInfo = QHostInfo::fromName(it->hostname);
+            if (hostInfo.error() == QHostInfo::NoError && !hostInfo.addresses().isEmpty()) {
+                for (const QHostAddress &addr : hostInfo.addresses()) {
+                    if (addr.protocol() == QAbstractSocket::IPv4Protocol) {
+                        it->ip = addr.toString();
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    m_cameras.clear();
+    for (const CameraInfo &info : cameraMap) {
+        if (!info.ip.isEmpty() && info.port > 0) {
+            m_cameras.append(info);
+        }
+    }
+
+    updateDiscoveredCamerasList();
+    return true;
+}
+#endif
 
 void MdnsManager::parseDiscoveryOutput(const QString &output)
 {

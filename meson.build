@@ -60,6 +60,8 @@ cpp = meson.get_compiler('cpp')
 wlanapi = cpp.find_library('wlanapi', required: false)
 iphlpapi = cpp.find_library('iphlpapi', required: false)
 winhttp = cpp.find_library('winhttp', required: false)
+dnsapi = cpp.find_library('dnsapi', required: false)
+ws2_32 = cpp.find_library('ws2_32', required: false)
 
 sources = [
   'src/main_qml.cpp',
@@ -74,7 +76,7 @@ sources = [
 
 executable('f1sh-camera-rx',
   sources + processed + qml_resources + [proto_gen, grpc_gen],
-  dependencies: [qt6_dep, gstreamer_dep, gst_video_dep, gst_app_dep, protobuf_dep, grpc_dep, wlanapi, iphlpapi, winhttp],
+  dependencies: [qt6_dep, gstreamer_dep, gst_video_dep, gst_app_dep, protobuf_dep, grpc_dep, wlanapi, iphlpapi, winhttp, dnsapi, ws2_32],
   win_subsystem: 'windows',
   include_directories: [include_directories('.'), include_directories('builddir')],
   install: true

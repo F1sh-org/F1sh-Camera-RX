@@ -76,6 +76,10 @@ private slots:
 private:
     void parseDiscoveryOutput(const QString &output);
     void parseTxtRecord(const QString &txt, CameraInfo &info);
+    void finalizeDiscoveryResults();
+#ifdef Q_OS_WIN
+    bool discoverWindowsNative();
+#endif
     void setCameraIp(const QString &ip);
     void setCameraHostname(const QString &hostname);
     void setCameraPort(int port);
