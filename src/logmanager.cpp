@@ -1,6 +1,10 @@
 #include "logmanager.h"
 #include <QDateTime>
 #include <QDebug>
+#include <QDir>
+#include <QFileInfo>
+#include <QStandardPaths>
+#include <QTextStream>
 #include <cstdarg>
 #include <cstdio>
 
@@ -17,13 +21,19 @@ LogManager::LogManager(QObject *parent)
     if (!s_instance) {
         s_instance = this;
     }
-    
+
+    initFileLogging();
+
     // Add startup log
     addLogEntry("Application started");
 }
 
 LogManager::~LogManager()
 {
+    if (m_logFile.isOpen()) {
+        m_logFile.close();
+    }
+
     if (s_instance == this) {
         s_instance = nullptr;
     }
@@ -103,32 +113,82 @@ QString LogManager::wrapText(const QString &text, int width)
     return result;
 }
 
+void LogManager::initFileLogging()
+{
+    QString baseDir = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+    if (baseDir.isEmpty()) {
+        return;
+    }
+
+    QDir dir(baseDir + "/logs");
+    if (!dir.exists() && !dir.mkpath(".")) {
+        return;
+    }
+
+    m_logFilePath = dir.filePath("app.log");
+    m_logFile.setFileName(m_logFilePath);
+    if (!m_logFile.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+        m_logFilePath.clear();
+    }
+}
+
+void LogManager::writeLogToFile(const QString &line)
+{
+    if (m_logFilePath.isEmpty()) {
+        return;
+    }
+
+    if (!m_logFile.isOpen()) {
+        m_logFile.setFileName(m_logFilePath);
+        if (!m_logFile.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+            return;
+        }
+    }
+
+    QFileInfo fileInfo(m_logFile);
+    if (fileInfo.exists() && fileInfo.size() > MAX_LOG_FILE_SIZE) {
+        m_logFile.close();
+        QString rotatedPath = m_logFilePath + ".1";
+        QFile::remove(rotatedPath);
+        QFile::rename(m_logFilePath, rotatedPath);
+        if (!m_logFile.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+            return;
+        }
+    }
+
+    QTextStream stream(&m_logFile);
+    stream << line;
+    stream.flush();
+}
+
 void LogManager::addLogEntry(const QString &message)
 {
     QString timestamp = QDateTime::currentDateTime().toString("[hh:mm:ss] ");
     QString wrapped = wrapText(message, 100);
-    
+
     // Ensure message ends with newline
     QString logLine = timestamp + wrapped;
     if (!logLine.endsWith('\n')) {
         logLine.append('\n');
     }
-    
+
     {
         QMutexLocker locker(&m_mutex);
         m_logs.append(logLine);
         m_logCount++;
-        
+
         // Trim old entries if exceeding max
         while (m_logs.size() > MAX_LOG_ENTRIES) {
             m_logs.removeFirst();
         }
+
+        writeLogToFile(logLine);
     }
-    
+
     emit newLogEntry(logLine);
     emit logTextChanged();
     emit logCountChanged();
-    
+
     // Also output to debug console
     qDebug().noquote() << logLine.trimmed();
 }

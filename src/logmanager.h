@@ -6,6 +6,7 @@
 #include <QString>
 #include <QStringList>
 #include <QMutex>
+#include <QFile>
 
 class LogManager : public QObject
 {
@@ -39,12 +40,17 @@ signals:
 private:
     void addLogEntry(const QString &message);
     QString wrapText(const QString &text, int width);
-    
+    void initFileLogging();
+    void writeLogToFile(const QString &line);
+
     QStringList m_logs;
     int m_logCount = 0;
     mutable QMutex m_mutex;
-    
+    QFile m_logFile;
+    QString m_logFilePath;
+
     static const int MAX_LOG_ENTRIES = 1000;
+    static const qint64 MAX_LOG_FILE_SIZE = 1024 * 1024;
     static LogManager* s_instance;
 };
 

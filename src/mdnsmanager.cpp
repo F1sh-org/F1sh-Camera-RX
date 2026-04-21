@@ -8,6 +8,194 @@
 #include <ws2tcpip.h>
 #include <windows.h>
 #include <windns.h>
+#include <winerror.h>
+#include <string>
+
+namespace {
+
+struct MdnsQueryContext {
+    HANDLE eventHandle = nullptr;
+    DNS_STATUS status = ERROR_TIMEOUT;
+    DNS_RECORD* records = nullptr;
+};
+
+struct DnsServiceResolveContext {
+    HANDLE eventHandle = nullptr;
+    DWORD status = ERROR_TIMEOUT;
+    DNS_SERVICE_INSTANCE* instance = nullptr;
+};
+
+VOID WINAPI mdnsQueryCallback(PVOID pQueryContext, PMDNS_QUERY_HANDLE, PDNS_QUERY_RESULT pQueryResults)
+{
+    auto* ctx = static_cast<MdnsQueryContext*>(pQueryContext);
+    if (!ctx) {
+        return;
+    }
+
+    if (pQueryResults) {
+        if (pQueryResults->pQueryRecords && !ctx->records) {
+            ctx->records = DnsRecordSetCopyEx(
+                pQueryResults->pQueryRecords,
+                DnsCharSetAnsi,
+                DnsCharSetAnsi);
+        }
+
+        if (pQueryResults->QueryStatus == ERROR_SUCCESS || ctx->status == ERROR_TIMEOUT) {
+            ctx->status = pQueryResults->QueryStatus;
+        }
+    } else {
+        ctx->status = ERROR_GEN_FAILURE;
+    }
+
+    if (ctx->eventHandle) {
+        SetEvent(ctx->eventHandle);
+    }
+}
+
+VOID WINAPI dnsServiceResolveCallback(DWORD Status, PVOID pQueryContext, PDNS_SERVICE_INSTANCE pInstance)
+{
+    auto* ctx = static_cast<DnsServiceResolveContext*>(pQueryContext);
+    if (!ctx) {
+        return;
+    }
+
+    ctx->status = Status;
+    if (Status == ERROR_SUCCESS && pInstance && !ctx->instance) {
+        ctx->instance = DnsServiceCopyInstance(pInstance);
+    }
+
+    if (ctx->eventHandle) {
+        SetEvent(ctx->eventHandle);
+    }
+}
+
+QString escapeDnsQueryName(QString name)
+{
+    name.replace("\\", "\\\\");
+    name.replace(" ", "\\032");
+    return name;
+}
+
+DNS_STATUS runDnsServiceResolve(const QString& instanceFqdn, DNS_SERVICE_INSTANCE** outInstance, DWORD timeoutMs = 3000)
+{
+    if (outInstance) {
+        *outInstance = nullptr;
+    }
+
+    DnsServiceResolveContext ctx;
+    ctx.eventHandle = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (!ctx.eventHandle) {
+        return ERROR_NOT_ENOUGH_MEMORY;
+    }
+
+    std::wstring queryWide = escapeDnsQueryName(instanceFqdn).toStdWString();
+    DNS_SERVICE_RESOLVE_REQUEST req{};
+    req.Version = DNS_QUERY_REQUEST_VERSION1;
+    req.InterfaceIndex = 0;
+    req.QueryName = const_cast<PWSTR>(queryWide.c_str());
+    req.pResolveCompletionCallback = dnsServiceResolveCallback;
+    req.pQueryContext = &ctx;
+
+    DNS_SERVICE_CANCEL cancel{};
+    DNS_STATUS status = DnsServiceResolve(&req, &cancel);
+    if (status != ERROR_SUCCESS && status != DNS_REQUEST_PENDING) {
+        CloseHandle(ctx.eventHandle);
+        return status;
+    }
+
+    DWORD waitResult = WaitForSingleObject(ctx.eventHandle, timeoutMs);
+    DnsServiceResolveCancel(&cancel);
+    CloseHandle(ctx.eventHandle);
+
+    if (waitResult != WAIT_OBJECT_0) {
+        if (ctx.instance) {
+            DnsServiceFreeInstance(ctx.instance);
+        }
+        return ERROR_TIMEOUT;
+    }
+
+    if (ctx.status == ERROR_SUCCESS && ctx.instance) {
+        if (outInstance) {
+            *outInstance = ctx.instance;
+        } else {
+            DnsServiceFreeInstance(ctx.instance);
+        }
+        return ERROR_SUCCESS;
+    }
+
+    if (ctx.instance) {
+        DnsServiceFreeInstance(ctx.instance);
+    }
+    return ctx.status;
+}
+
+DNS_STATUS runMdnsQuery(const QString& query, WORD type, DNS_RECORD** outRecords, DWORD timeoutMs = 3000)
+{
+    if (outRecords) {
+        *outRecords = nullptr;
+    }
+
+    std::wstring queryWide = escapeDnsQueryName(query).toStdWString();
+    MDNS_QUERY_REQUEST request{};
+    request.Version = 1;
+    request.Query = queryWide.c_str();
+    request.QueryType = type;
+    request.QueryOptions = 0;
+    request.InterfaceIndex = 0;
+
+    constexpr int kMaxAttempts = 3;
+    DNS_STATUS lastStatus = ERROR_TIMEOUT;
+
+    for (int attempt = 1; attempt <= kMaxAttempts; ++attempt) {
+        MdnsQueryContext ctx;
+        ctx.eventHandle = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        if (!ctx.eventHandle) {
+            return ERROR_NOT_ENOUGH_MEMORY;
+        }
+
+        request.pQueryCallback = mdnsQueryCallback;
+        request.pQueryContext = &ctx;
+
+        MDNS_QUERY_HANDLE handle{};
+        DNS_STATUS startStatus = DnsStartMulticastQuery(&request, &handle);
+        if (startStatus != ERROR_SUCCESS) {
+            CloseHandle(ctx.eventHandle);
+            return startStatus;
+        }
+
+        DWORD waitResult = WaitForSingleObject(ctx.eventHandle, timeoutMs);
+        DnsStopMulticastQuery(&handle);
+        CloseHandle(ctx.eventHandle);
+
+        if (waitResult == WAIT_OBJECT_0) {
+            if (ctx.records && (ctx.status == ERROR_SUCCESS || ctx.status == ERROR_CANCELLED)) {
+                if (outRecords) {
+                    *outRecords = ctx.records;
+                } else {
+                    DnsRecordListFree(ctx.records, DnsFreeRecordList);
+                }
+                return ERROR_SUCCESS;
+            }
+
+            if (outRecords) {
+                *outRecords = ctx.records;
+            } else if (ctx.records) {
+                DnsRecordListFree(ctx.records, DnsFreeRecordList);
+            }
+            return ctx.status;
+        }
+
+        if (ctx.records) {
+            DnsRecordListFree(ctx.records, DnsFreeRecordList);
+        }
+
+        lastStatus = ERROR_TIMEOUT;
+    }
+
+    return lastStatus;
+}
+
+} // namespace
 #endif
 
 const QString MdnsManager::kServiceType = "_f1sh-camera._tcp";
@@ -52,6 +240,7 @@ void MdnsManager::startDiscovery()
     // Use platform-specific mDNS browse command
 #ifdef Q_OS_WIN
     if (discoverWindowsNative()) {
+        setIsDiscovering(false);
         finalizeDiscoveryResults();
         return;
     }
@@ -217,17 +406,26 @@ void MdnsManager::finalizeDiscoveryResults()
 #ifdef Q_OS_WIN
 bool MdnsManager::discoverWindowsNative()
 {
+    LogManager::log("Windows mDNS: PTR browse start for _f1sh-camera._tcp.local");
+
+    DWORD queryOptions = DNS_QUERY_MULTICAST_ONLY;
+
     DNS_RECORD* browseResults = nullptr;
     DNS_STATUS browseStatus = DnsQuery_A(
         "_f1sh-camera._tcp.local",
         DNS_TYPE_PTR,
-        DNS_QUERY_MULTICAST_ONLY,
+        queryOptions,
         nullptr,
         &browseResults,
         nullptr);
 
+    if (browseStatus == ERROR_BAD_ARGUMENTS || browseStatus == DNS_ERROR_RCODE_NAME_ERROR) {
+        LogManager::log("Windows mDNS: DnsQuery path unavailable, retrying with DnsStartMulticastQuery");
+        browseStatus = runMdnsQuery("_f1sh-camera._tcp.local", DNS_TYPE_PTR, &browseResults);
+    }
+
     if (browseStatus != ERROR_SUCCESS) {
-        LogManager::log(QString("Windows mDNS browse failed: %1").arg(static_cast<int>(browseStatus)));
+        LogManager::log(QString("Windows mDNS browse failed: code=%1").arg(static_cast<int>(browseStatus)));
         return false;
     }
 
@@ -255,47 +453,130 @@ bool MdnsManager::discoverWindowsNative()
 
         CameraInfo info;
         info.name = name;
+        info.instanceFqdn = fullInstance;
         cameraMap[name] = info;
-        LogManager::log(QString("Found camera service: %1").arg(name));
+        LogManager::log(QString("Found camera service: %1 (%2)").arg(name, fullInstance));
     }
 
-    DnsRecordListFree(browseResults, DnsFreeRecordList);
+    // Enrich camera data directly from the browse response records
+    for (DNS_RECORD* rec = browseResults; rec; rec = rec->pNext) {
+        if (rec->wType == DNS_TYPE_SRV && rec->pName && rec->Data.SRV.pNameTarget) {
+            QString owner = QString::fromLatin1(rec->pName).trimmed();
+            if (owner.endsWith('.')) owner.chop(1);
+            for (auto it = cameraMap.begin(); it != cameraMap.end(); ++it) {
+                if (owner.compare(it->instanceFqdn, Qt::CaseInsensitive) == 0) {
+                    it->port = static_cast<int>(rec->Data.SRV.wPort);
+                    it->hostname = QString::fromLatin1(rec->Data.SRV.pNameTarget);
+                    if (it->hostname.endsWith('.')) it->hostname.chop(1);
+                    LogManager::log(QString("Windows mDNS: BROWSE SRV %1 -> host=%2 port=%3")
+                        .arg(it->instanceFqdn, it->hostname)
+                        .arg(it->port));
+                    break;
+                }
+            }
+        } else if (rec->wType == DNS_TYPE_TEXT && rec->pName && rec->Data.TXT.dwStringCount > 0) {
+            QString owner = QString::fromLatin1(rec->pName).trimmed();
+            if (owner.endsWith('.')) owner.chop(1);
+            for (auto it = cameraMap.begin(); it != cameraMap.end(); ++it) {
+                if (owner.compare(it->instanceFqdn, Qt::CaseInsensitive) == 0) {
+                    QStringList txtEntries;
+                    for (DWORD i = 0; i < rec->Data.TXT.dwStringCount; ++i) {
+                        if (rec->Data.TXT.pStringArray[i]) {
+                            txtEntries << QString::fromLatin1(rec->Data.TXT.pStringArray[i]);
+                        }
+                    }
+                    if (!txtEntries.isEmpty()) {
+                        parseTxtRecord(txtEntries.join(' '), *it);
+                        LogManager::log(QString("Windows mDNS: BROWSE TXT %1 -> protocol=%2 encoding=%3 control_port=%4")
+                            .arg(it->instanceFqdn, it->protocol, it->encoding)
+                            .arg(it->controlPort));
+                    }
+                    break;
+                }
+            }
+        }
+    }
 
-    for (auto it = cameraMap.begin(); it != cameraMap.end(); ++it) {
-        QString instanceFqdn = QString("%1.%2.local").arg(it.key(), kServiceType);
-        DNS_RECORD* serviceResults = nullptr;
-        QByteArray instanceFqdnBytes = instanceFqdn.toLatin1();
-        DNS_STATUS serviceStatus = DnsQuery_A(
-            instanceFqdnBytes.constData(),
-            DNS_TYPE_ANY,
-            DNS_QUERY_MULTICAST_ONLY,
-            nullptr,
-            &serviceResults,
-            nullptr);
-
-        if (serviceStatus != ERROR_SUCCESS) {
+    // Resolve host IPv4 from A records if already present in browse response
+    for (DNS_RECORD* rec = browseResults; rec; rec = rec->pNext) {
+        if (rec->wType != DNS_TYPE_A || !rec->pName) {
             continue;
         }
 
-        for (DNS_RECORD* rec = serviceResults; rec; rec = rec->pNext) {
-            if (rec->wType == DNS_TYPE_SRV && rec->Data.SRV.pNameTarget != nullptr) {
-                it->port = static_cast<int>(rec->Data.SRV.wPort);
-                it->hostname = QString::fromLatin1(rec->Data.SRV.pNameTarget);
-                if (it->hostname.endsWith('.')) {
-                    it->hostname.chop(1);
+        QString host = QString::fromLatin1(rec->pName).trimmed();
+        if (host.endsWith('.')) host.chop(1);
+
+        for (auto it = cameraMap.begin(); it != cameraMap.end(); ++it) {
+            if (!it->hostname.isEmpty() && host.compare(it->hostname, Qt::CaseInsensitive) == 0 && it->ip.isEmpty()) {
+                IN_ADDR addr;
+                addr.S_un.S_addr = rec->Data.A.IpAddress;
+                QString ip = QString::fromLatin1(inet_ntoa(addr));
+                if (!ip.isEmpty()) {
+                    it->ip = ip;
+                    LogManager::log(QString("Windows mDNS: BROWSE A %1 -> %2").arg(it->hostname, it->ip));
                 }
-            } else if (rec->wType == DNS_TYPE_TEXT && rec->Data.TXT.dwStringCount > 0) {
-                QStringList txtEntries;
-                for (DWORD i = 0; i < rec->Data.TXT.dwStringCount; ++i) {
-                    if (rec->Data.TXT.pStringArray[i] != nullptr) {
-                        txtEntries << QString::fromLatin1(rec->Data.TXT.pStringArray[i]);
-                    }
-                }
-                parseTxtRecord(txtEntries.join(' '), *it);
+                break;
             }
         }
+    }
 
-        DnsRecordListFree(serviceResults, DnsFreeRecordList);
+    LogManager::log(QString("Windows mDNS: PTR browse found %1 service instance(s)").arg(cameraMap.size()));
+    DnsRecordListFree(browseResults, DnsFreeRecordList);
+
+    for (auto it = cameraMap.begin(); it != cameraMap.end(); ++it) {
+        QString instanceFqdn = it->instanceFqdn;
+        if (instanceFqdn.isEmpty()) {
+            instanceFqdn = QString("%1.%2.local").arg(it.key(), kServiceType);
+        }
+
+        if (it->hostname.isEmpty() || it->port <= 0 || it->ip.isEmpty()) {
+            DNS_SERVICE_INSTANCE* resolvedInstance = nullptr;
+            DNS_STATUS resolveStatus = runDnsServiceResolve(instanceFqdn, &resolvedInstance, 2500);
+            if (resolveStatus == ERROR_SUCCESS && resolvedInstance) {
+                if (resolvedInstance->pszHostName) {
+                    it->hostname = QString::fromWCharArray(resolvedInstance->pszHostName);
+                    if (it->hostname.endsWith('.')) {
+                        it->hostname.chop(1);
+                    }
+                }
+                it->port = static_cast<int>(resolvedInstance->wPort);
+
+                QStringList txtEntries;
+                for (DWORD i = 0; i < resolvedInstance->dwPropertyCount; ++i) {
+                    if (resolvedInstance->keys && resolvedInstance->values &&
+                        resolvedInstance->keys[i] && resolvedInstance->values[i]) {
+                        QString k = QString::fromWCharArray(resolvedInstance->keys[i]);
+                        QString v = QString::fromWCharArray(resolvedInstance->values[i]);
+                        txtEntries << (k + "=" + v);
+                    }
+                }
+                if (!txtEntries.isEmpty()) {
+                    parseTxtRecord(txtEntries.join(' '), *it);
+                }
+
+                LogManager::log(QString("Windows mDNS: RESOLVE %1 -> host=%2 port=%3 protocol=%4 encoding=%5 control_port=%6")
+                    .arg(instanceFqdn, it->hostname)
+                    .arg(it->port)
+                    .arg(it->protocol, it->encoding)
+                    .arg(it->controlPort));
+
+                if (resolvedInstance->ip4Address) {
+                    IN_ADDR addr;
+                    addr.S_un.S_addr = *resolvedInstance->ip4Address;
+                    QString ip = QString::fromLatin1(inet_ntoa(addr));
+                    if (!ip.isEmpty()) {
+                        it->ip = ip;
+                        LogManager::log(QString("Windows mDNS: RESOLVE IPv4 %1 -> %2").arg(it->hostname, it->ip));
+                    }
+                }
+
+                DnsServiceFreeInstance(resolvedInstance);
+            } else {
+                LogManager::log(QString("Windows mDNS: RESOLVE failed for %1 code=%2")
+                    .arg(instanceFqdn)
+                    .arg(static_cast<int>(resolveStatus)));
+            }
+        }
 
         if (!it->hostname.isEmpty()) {
             DNS_RECORD* hostResults = nullptr;
@@ -303,10 +584,14 @@ bool MdnsManager::discoverWindowsNative()
             DNS_STATUS hostStatus = DnsQuery_A(
                 hostnameBytes.constData(),
                 DNS_TYPE_A,
-                DNS_QUERY_MULTICAST_ONLY,
+                queryOptions,
                 nullptr,
                 &hostResults,
                 nullptr);
+
+            if (hostStatus == ERROR_BAD_ARGUMENTS || hostStatus == DNS_ERROR_RCODE_NAME_ERROR || hostStatus == DNS_ERROR_INVALID_NAME_CHAR) {
+                hostStatus = runMdnsQuery(it->hostname, DNS_TYPE_A, &hostResults);
+            }
 
             if (hostStatus == ERROR_SUCCESS) {
                 for (DNS_RECORD* rec = hostResults; rec; rec = rec->pNext) {
@@ -316,11 +601,16 @@ bool MdnsManager::discoverWindowsNative()
                         QString ip = QString::fromLatin1(inet_ntoa(addr));
                         if (!ip.isEmpty()) {
                             it->ip = ip;
+                            LogManager::log(QString("Windows mDNS: A %1 -> %2").arg(it->hostname, it->ip));
                             break;
                         }
                     }
                 }
                 DnsRecordListFree(hostResults, DnsFreeRecordList);
+            } else {
+                LogManager::log(QString("Windows mDNS: A query failed for %1 code=%2")
+                    .arg(it->hostname)
+                    .arg(static_cast<int>(hostStatus)));
             }
         }
 
@@ -330,9 +620,13 @@ bool MdnsManager::discoverWindowsNative()
                 for (const QHostAddress &addr : hostInfo.addresses()) {
                     if (addr.protocol() == QAbstractSocket::IPv4Protocol) {
                         it->ip = addr.toString();
+                        LogManager::log(QString("Windows mDNS: QHostInfo fallback %1 -> %2").arg(it->hostname, it->ip));
                         break;
                     }
                 }
+            } else {
+                LogManager::log(QString("Windows mDNS: QHostInfo fallback failed for %1")
+                    .arg(it->hostname));
             }
         }
     }
@@ -341,9 +635,14 @@ bool MdnsManager::discoverWindowsNative()
     for (const CameraInfo &info : cameraMap) {
         if (!info.ip.isEmpty() && info.port > 0) {
             m_cameras.append(info);
+        } else {
+            LogManager::log(QString("Windows mDNS: skipping incomplete service name=%1 instance=%2 host=%3 ip=%4 port=%5")
+                .arg(info.name, info.instanceFqdn, info.hostname, info.ip)
+                .arg(info.port));
         }
     }
 
+    LogManager::log(QString("Windows mDNS: finalized %1 camera candidate(s)").arg(m_cameras.size()));
     updateDiscoveredCamerasList();
     return true;
 }

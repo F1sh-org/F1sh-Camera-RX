@@ -12,6 +12,7 @@
 // Structure to hold discovered camera info
 struct CameraInfo {
     QString name;
+    QString instanceFqdn;
     QString hostname;
     QString ip;
     int port = 0;           // Stream port from service
