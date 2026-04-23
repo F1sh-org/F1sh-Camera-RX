@@ -13,7 +13,9 @@
       "Bash(brew install:*)",
       "Bash(wevtutil qe *)",
       "Bash(pwsh -File scripts/windows/build-portable-meson.ps1 -SkipBuild)",
-      "Bash(meson install *)"
+      "Bash(meson install *)",
+      "Bash(\"D:/msys64/ucrt64/share/qt6/bin/rcc.exe\" --version)",
+      "Bash(python -)"
     ]
   }
 }

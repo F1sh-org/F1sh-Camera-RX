@@ -507,7 +507,7 @@ Item {
                         // If connected via mDNS/gRPC, use swapResolution
                         else if (grpcManager && mdnsManager && mdnsManager.cameraFound) {
                             var rotate = configManager.rotate
-                            var swap = (rotate === 0 || rotate === 2) ? 1 : 0
+                            var swap = (rotate === 1 || rotate === 3) ? 1 : 0
                             if (logManager) logManager.logMessage("Saving rotation via gRPC (swap=" + swap + ") for rotate=" + rotate)
                             grpcManager.swapResolution(swap)
                         }
@@ -763,10 +763,10 @@ Item {
                         if (success) {
                             if (logManager) logManager.logMessage("Connect Camera: Successfully configured camera to stream to this device!")
                             // Now send the rotation/orientation via SwapResolution
-                            // swap=1 for landscape (rotate 0 or 2), swap=0 for portrait (rotate 1 or 3)
+                            // swap=1 for rotate 1 or 3, swap=0 for rotate 0 or 2 (matches serial status 24)
                             if (grpcManager && configManager) {
                                 var rotate = configManager.rotate
-                                var swap = (rotate === 0 || rotate === 2) ? 1 : 0
+                                var swap = (rotate === 1 || rotate === 3) ? 1 : 0
                                 if (logManager) logManager.logMessage("Connect Camera: Sending rotation (swap=" + swap + ") for rotate=" + rotate)
                                 grpcManager.swapResolution(swap)
                             }
