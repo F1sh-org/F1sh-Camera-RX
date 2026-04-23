@@ -1,5 +1,5 @@
 project('f1sh-camera-rx', 'cpp', 'c',
-  version: '2.0.0',
+  version: '2.1.0',
   default_options: ['cpp_std=c++17', 'warning_level=2'])
 
 qt6 = import('qt6')
