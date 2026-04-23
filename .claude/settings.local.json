@@ -10,7 +10,10 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "WebFetch(domain:github.com)",
       "Bash(brew info:*)",
-      "Bash(brew install:*)"
+      "Bash(brew install:*)",
+      "Bash(wevtutil qe *)",
+      "Bash(pwsh -File scripts/windows/build-portable-meson.ps1 -SkipBuild)",
+      "Bash(meson install *)"
     ]
   }
 }

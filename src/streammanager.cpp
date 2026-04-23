@@ -257,31 +257,54 @@ QString StreamManager::buildPipelineString()
 
 bool StreamManager::createPipeline()
 {
-    QString pipelineStr = buildPipelineString();
-    if (pipelineStr.isEmpty()) {
-        setStatus("No decoder available");
-        return false;
-    }
+    bool softwareFallbackTried = false;
 
-    LogManager::log(QString("Creating pipeline: %1").arg(pipelineStr));
+    while (true) {
+        QString pipelineStr = buildPipelineString();
+        if (pipelineStr.isEmpty()) {
+            setStatus("No decoder available");
+            return false;
+        }
 
-    GError *error = nullptr;
-    m_pipeline = gst_parse_launch(pipelineStr.toUtf8().constData(), &error);
+        LogManager::log(QString("Creating pipeline: %1").arg(pipelineStr));
 
-    if (!m_pipeline || error) {
+        GError *error = nullptr;
+        m_pipeline = gst_parse_launch(pipelineStr.toUtf8().constData(), &error);
+
+        if (m_pipeline && !error) {
+            break;
+        }
+
         QString errorMsg = error ? QString::fromUtf8(error->message) : "Unknown error";
         LogManager::log(QString("Failed to create pipeline: %1").arg(errorMsg));
         if (error) g_error_free(error);
-
-        // Try fallback with software decoder
-        if (m_currentDecoder != "FFmpeg H.264") {
-            LogManager::log("Attempting fallback to software decoder...");
-            m_preferredDecoder = "avdec_h264";
-            return createPipeline();
+        if (m_pipeline) {
+            gst_object_unref(m_pipeline);
+            m_pipeline = nullptr;
         }
 
-        setStatus("Failed to create pipeline");
-        return false;
+        if (softwareFallbackTried) {
+            setStatus("Failed to create pipeline");
+            return false;
+        }
+
+        DecoderInfo softwareDecoder;
+        softwareDecoder.priority = -1;
+        for (const auto &decoder : m_decoders) {
+            if (!decoder.isHardware && decoder.priority > softwareDecoder.priority) {
+                softwareDecoder = decoder;
+            }
+        }
+
+        if (softwareDecoder.priority < 0 || m_currentDecoder == softwareDecoder.name) {
+            setStatus("Failed to create pipeline");
+            return false;
+        }
+
+        LogManager::log(QString("Attempting fallback to software decoder: %1 (%2)")
+                        .arg(softwareDecoder.name, softwareDecoder.elementName));
+        m_preferredDecoder = softwareDecoder.elementName;
+        softwareFallbackTried = true;
     }
 
     // Get appsink element

@@ -102,6 +102,7 @@ def copy_gstreamer_plugins(dest_plugin_dir, ucrt64_root, ntldd_exe, copied_dlls,
     required_plugins = {
         # Core elements
         'libgstcoreelements.dll',       # queue, capsfilter
+        'libgstapp.dll',                # appsink
 
         # RTP/UDP streaming
         'libgstudp.dll',                # udpsrc
