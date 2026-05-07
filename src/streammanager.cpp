@@ -43,8 +43,7 @@ StreamManager::StreamManager(QObject *parent)
     , m_imageProvider(new VideoFrameProvider())
     , m_frameTimer(new QTimer(this))
 {
-    initGStreamer();
-    detectDecoders();
+    setStatus("Stopped");
 
     // Setup frame polling timer (as fallback for callback issues)
     connect(m_frameTimer, &QTimer::timeout, this, &StreamManager::pollForFrames);
@@ -74,6 +73,15 @@ void StreamManager::initGStreamer()
 
 void StreamManager::detectDecoders()
 {
+    if (!m_gstInitialized) {
+        initGStreamer();
+        if (!m_gstInitialized) {
+            m_decoders.clear();
+            emit availableDecodersChanged();
+            return;
+        }
+    }
+
     m_decoders.clear();
 
     // Define all possible H.264 decoders with their priorities
@@ -363,6 +371,15 @@ void StreamManager::start()
         if (!m_gstInitialized) {
             setStatus("GStreamer not initialized");
             emit errorOccurred("GStreamer initialization failed");
+            return;
+        }
+    }
+
+    if (m_decoders.isEmpty()) {
+        detectDecoders();
+        if (m_decoders.isEmpty()) {
+            setStatus("No H.264 decoders found");
+            emit errorOccurred("No H.264 decoders found");
             return;
         }
     }
