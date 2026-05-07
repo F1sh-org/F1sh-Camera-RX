@@ -3,6 +3,7 @@
 #include <QQuickStyle>
 #include <QQmlContext>
 #include <QDebug>
+#include <QFileInfo>
 #include <iostream>
 #ifdef _WIN32
 #include <windows.h>
@@ -15,6 +16,47 @@
 #include "grpcmanager.h"
 #include "mdnsmanager.h"
 
+#ifdef __APPLE__
+static void appendEnvPath(const char *name, const QString &path)
+{
+    if (!QFileInfo::exists(path)) {
+        return;
+    }
+
+    const QByteArray pathBytes = path.toUtf8();
+    QByteArray value = qgetenv(name);
+    const QList<QByteArray> parts = value.split(':');
+    if (parts.contains(pathBytes)) {
+        return;
+    }
+
+    if (!value.isEmpty()) {
+        value.append(':');
+    }
+    value.append(pathBytes);
+    qputenv(name, value);
+}
+
+static void setEnvPathIfExists(const char *name, const QString &path)
+{
+    if (qgetenv(name).isEmpty() && QFileInfo::exists(path)) {
+        qputenv(name, path.toUtf8());
+    }
+}
+
+static void configureMacosGStreamerEnvironment()
+{
+    const QStringList prefixes = {"/opt/homebrew", "/usr/local"};
+
+    for (const QString &prefix : prefixes) {
+        appendEnvPath("DYLD_LIBRARY_PATH", prefix + "/lib");
+        appendEnvPath("GI_TYPELIB_PATH", prefix + "/lib/girepository-1.0");
+        appendEnvPath("GST_PLUGIN_PATH", prefix + "/lib/gstreamer-1.0");
+        setEnvPathIfExists("GST_PLUGIN_SCANNER", prefix + "/opt/gstreamer/libexec/gstreamer-1.0/gst-plugin-scanner");
+    }
+}
+#endif
+
 int main(int argc, char *argv[])
 {
     // Force console output on Windows
@@ -24,7 +66,11 @@ int main(int argc, char *argv[])
         freopen("CONOUT$", "w", stderr);
     }
     #endif
-    
+
+    #ifdef __APPLE__
+    configureMacosGStreamerEnvironment();
+    #endif
+     
     std::cerr << "Starting F1sh Camera RX..." << std::endl;
     
     QApplication app(argc, argv);
